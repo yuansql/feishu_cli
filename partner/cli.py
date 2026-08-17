@@ -17,6 +17,7 @@ from .actions import (
     weekly_text,
 )
 from .brief import brief_text, push_brief
+from .ids import P2P_CHAT_ID
 from .schedule import install_schedule, install_serve
 from .formatters import HELP_TEXT
 from .intents import parse_intent
@@ -130,7 +131,14 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd == "ask":
         asked = " ".join(args.text)
-        print(dispatch(parse_intent(asked), user_text=asked, channel="p2p"))
+        print(
+            dispatch(
+                parse_intent(asked),
+                user_text=asked,
+                channel="p2p",
+                chat_id=P2P_CHAT_ID,
+            )
+        )
         return 0
     if args.cmd == "serve":
         if args.install:

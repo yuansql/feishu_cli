@@ -93,7 +93,9 @@ def looks_like_wake(text: str) -> bool:
 
 
 def _folded(raw: str) -> str:
-    return re.sub(r"[？?。！!…]+$", "", (raw or "").strip()).strip()
+    text = (raw or "").strip()
+    folded = re.sub(r"[？?。！!…]+$", "", text).strip()
+    return folded if folded else text
 
 
 def looks_like_tasks(raw: str) -> bool:
