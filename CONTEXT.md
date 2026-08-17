@@ -1,6 +1,6 @@
 # CONTEXT
 
-飞书工作伙伴（自建 CLI）。用户：吴梦晨。应用：cli_aaf077d53d389d2d。
+飞书工作伙伴（自建 CLI）。身份与应用 ID 只在本机 `lark-cli` / 环境变量，不写进文档。
 
 领域词：lark-cli、工作伙伴、user 身份办事、bot 身份收发、缺权限明示、不代登 OAuth。
 

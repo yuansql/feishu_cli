@@ -1,9 +1,9 @@
-# 吴梦晨的飞书工作伙伴
+# 飞书工作伙伴
 
 自建、不付费。目标是对齐 **飞书豆包工作伙伴** 的办公闭环：在飞书里问、在飞书里办事。  
 **不是** 官方 aily / 豆包企业版：没有 AI 额度、智能体工作台、多维表格 AI 字段。
 
-手：官方 [`lark-cli`](https://github.com/larksuite/cli)（本机已绑定应用 `cli_aaf077d53d389d2d`「吴梦晨的飞书 CLI」）。  
+手：官方 [`lark-cli`](https://github.com/larksuite/cli)（本机已登录；应用名/ID 勿写入文档）。  
 脑：Cursor 对话（本仓 `SKILL.md`）。飞书单聊走本机 Hermes 隔离档案 `feishupartner`：只有白名单飞书取数 MCP，从不 `--yolo`，不给终端。群里只润色。
 
 旧仓 `~/学习/@Agent/agent_feishu`（小飞 + Cloudflare 隧道）不再扩展。
@@ -44,7 +44,7 @@ lark-cli auth login --scope "calendar:calendar.event:read search:docs:read"
 
 ## 飞书里怎么用
 
-1. 飞书搜索「吴梦晨的飞书 CLI」打开机器人单聊，或把机器人拉进群。  
+1. 飞书里打开本机那个机器人单聊，或把机器人拉进群。  
 2. 本机执行 `feishu serve`（应用已是 WebSocket 回调，不用隧道）。  
 3. 单聊直接发「帮助」「今天」「待办」「本周计划」。**只有「搜 关键词」才列文档**；其余会读材料再分析。群里请 @机器人，或以「工作伙伴」开头。
 
@@ -69,7 +69,7 @@ lark-cli 读用户身份办事 / 机器人身份回复
 仓库入口：`bin/feishu`。可链到 `~/.local/bin`：
 
 ```bash
-ln -sf "/Users/wumm/学习/@Agent/feishu_cli/bin/feishu" ~/.local/bin/feishu
+ln -sf "$PWD/bin/feishu" ~/.local/bin/feishu
 ln -sf ~/.workbuddy/binaries/node/cli-connector-packages/bin/lark-cli ~/.local/bin/lark-cli
 ```
 
