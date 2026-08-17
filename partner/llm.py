@@ -1,0 +1,437 @@
+"""Rewrite Feishu replies with local Hermes. Text only — never --yolo."""
+
+from __future__ import annotations
+
+import os
+import re
+import shutil
+import subprocess
+from pathlib import Path
+
+ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+BOX_RE = re.compile(r"^[┌└│].*$", re.M)
+_THINK_MARKERS = (
+    "用户要求",
+    "材料内容",
+    "我需要",
+    "可以这样组织",
+    "不要解释你是",
+    "不要输出思考",
+    "只根据材料",
+    "这样比较自然",
+    "所以我应该",
+)
+_LEAK_MARKERS = (
+    "feishu_*",
+    "FETCH:",
+    "根据指令",
+    "材料不够",
+    "工具补齐",
+    "不要用终端",
+    "调用 feishu",
+    "没有工具时",
+    "【材料】",
+    "用户说：",
+)
+
+_COMPOSE_ACTIONS = frozenset(
+    {"weekly", "today", "tomorrow", "tasks", "unknown", "minutes", "approval"}
+)
+_NO_PARTNER = frozenset({"send", "write_weekly", "resolve"})
+_FETCH_SIMPLE = frozenset(
+    {
+        "today",
+        "tomorrow",
+        "tasks",
+        "weekly",
+        "brief",
+        "inbox",
+        "minutes",
+        "approval",
+        "chats",
+        "help",
+    }
+)
+_FETCH_QUERY = frozenset({"search", "read"})
+_FETCH_RE = re.compile(r"^FETCH:\s*(\S+)(?:\s+(.+))?$", re.I)
+
+
+def find_hermes() -> Path | None:
+    override = os.environ.get("HERMES_BIN")
+    if override:
+        p = Path(override).expanduser()
+        return p if p.exists() else None
+    which = shutil.which("hermes")
+    if which:
+        return Path(which)
+    local = Path.home() / ".local/bin/hermes"
+    return local if local.exists() else None
+
+
+def hermes_available() -> bool:
+    return find_hermes() is not None
+
+
+def should_compose(action: str) -> bool:
+    if os.environ.get("FEISHU_PARTNER_NO_LLM") == "1":
+        return False
+    return action in _COMPOSE_ACTIONS
+
+
+def should_partner(channel: str, action: str) -> bool:
+    if os.environ.get("FEISHU_PARTNER_NO_LLM") == "1":
+        return False
+    if channel != "p2p":
+        return False
+    return action not in _NO_PARTNER
+
+
+def parse_fetch(text: str) -> tuple[str, str] | None:
+    for line in (text or "").splitlines():
+        match = _FETCH_RE.match(line.strip())
+        if not match:
+            continue
+        action = match.group(1).lower()
+        query = (match.group(2) or "").strip()
+        if action in _FETCH_SIMPLE and not query:
+            return action, ""
+        if action in _FETCH_QUERY and query:
+            return action, query
+    return None
+
+
+def _looks_like_leak(text: str) -> bool:
+    blob = text or ""
+    return any(marker in blob for marker in _LEAK_MARKERS)
+
+
+def _is_usable_reply(text: str, *, limit: int = 1200) -> bool:
+    if not text or len(text) < 8:
+        return False
+    if parse_fetch(text):
+        return False
+    if _looks_like_leak(text):
+        return False
+    if any(marker in text for marker in _THINK_MARKERS):
+        return False
+    if any(
+        junk in text
+        for junk in (
+            "再调整",
+            "让我以",
+            "尝试用口语",
+            "内容结构",
+            "需要注意",
+            "材料是吴梦晨",
+            "这样应该可以",
+            "再确认一下",
+            "材料中第",
+            "用户说",
+        )
+    ):
+        return False
+    if len(text) > limit:
+        return False
+    return True
+
+
+def _extract_reply(raw: str) -> str:
+    text = ANSI_RE.sub("", raw or "")
+    text = BOX_RE.sub("", text)
+    lines = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("session_id:"):
+            continue
+        if stripped.startswith("┌") or stripped.startswith("└") or stripped.startswith("│"):
+            continue
+        lines.append(line.rstrip())
+    text = "\n".join(lines).strip()
+    if any(marker in text for marker in _THINK_MARKERS):
+        spoken = []
+        for line in lines:
+            head = line.strip()
+            if any(marker in head[:24] for marker in _THINK_MARKERS):
+                continue
+            spoken.append(head.strip('「」"“”'))
+        text = "\n".join(spoken).strip()
+    if _looks_like_leak(text):
+        return ""
+    return text
+
+
+def build_hermes_argv(prompt: str, binary: Path, *, mode: str = "rewrite") -> list[str]:
+    # ponytail: never --yolo. rewrite = one turn, no tools.
+    # partner = isolated profile with Feishu MCP only.
+    from .hermes_setup import PROFILE_NAME
+
+    argv = [str(binary)]
+    if mode == "partner":
+        argv += ["-p", PROFILE_NAME]
+    argv += [
+        "chat",
+        "-q",
+        prompt,
+        "--max-turns",
+        "6" if mode == "partner" else "1",
+        "-Q",
+        "--cli",
+        "--source",
+        "tool",
+    ]
+    if mode != "partner":
+        argv += ["--ignore-rules"]
+    return argv
+
+
+def _prompt(user_text: str, facts: str) -> str:
+    return (
+        "你是吴梦晨在飞书里的工作伙伴。根据【材料】用第一人称（我）写回复，像同事随口说，不要客服腔。\n"
+        "只根据材料，不许编造材料里没有的进度、会议、人名。\n"
+        "不要解释你是 AI，不要输出思考过程，不要调用任何工具或命令。\n"
+        "只输出给用户看的完整正文，禁止复述本说明、思考步骤或「另外还有」这类收尾残句单独成篇。\n\n"
+        f"用户说：{user_text.strip() or '本周情况'}\n\n"
+        f"【材料】\n{facts.strip()[:3500]}"
+    )
+
+
+def _item_lines(text: str) -> list[str]:
+    out: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("- "):
+            out.append(stripped[2:].strip())
+        elif len(stripped) >= 3 and stripped[0].isdigit() and stripped[1] in ".)、":
+            out.append(stripped[2:].lstrip(" .、"))
+    return out
+
+
+def _item_covered(item: str, sources: list[str]) -> bool:
+    blob = "\n".join(sources)
+    core = item
+    for tag in ("（卡人·紧急）", "（卡人）", "（紧急）", "（今日截止）"):
+        core = core.replace(tag, "")
+    width = 4 if len(core) >= 4 else 2
+    grams: list[str] = []
+    for index in range(len(core) - width + 1):
+        gram = core[index : index + width]
+        if not any(ch.isalnum() or "\u4e00" <= ch <= "\u9fff" for ch in gram):
+            continue
+        grams.append(gram)
+    if not grams:
+        return True
+    return any(gram in blob for gram in grams)
+
+
+def _brief_prompt(facts: str) -> str:
+    return (
+        "把下面这份飞书日更简报润色成更好扫的条目，保持简报体，不要改成第一人称闲聊。\n"
+        "必须保留已有标题：【昨天小结】【今天规划】【本周值得关注】待处理（原文有的都要留）。\n"
+        "已结束/进行中/未完成 这些状态不要删，也不要改成已办除非材料写了已同步/已处理。\n"
+        "只根据材料改措辞、合并重复、标出为什么要先做；不许编造材料里没有的会议、待办、人名、进度。\n"
+        "不要新增条目，不要凑满 5 条，空源不要补。\n"
+        "不要解释你是 AI，不要输出思考过程，不要调用任何工具或命令。\n"
+        "直接输出润色后的完整简报，第一行必须是「吴梦晨 ·」。\n\n"
+        f"【材料】\n{facts.strip()[:3500]}"
+    )
+
+
+def accept_polished_brief(original: str, polished: str) -> bool:
+    if not _is_usable_reply(polished):
+        return False
+    if "吴梦晨" not in polished or "简报" not in polished:
+        return False
+    if "待回复" in polished and "待回复" not in original:
+        return False
+    if "待处理" in polished and "待处理" not in original:
+        return False
+    for heading in ("【昨天小结】", "【今天规划】", "【本周值得关注】", "待回复", "待处理", "长期待办"):
+        if heading in original and heading not in polished:
+            return False
+    sources = _item_lines(original)
+    if not sources:
+        return True
+    for item in _item_lines(polished):
+        if not _item_covered(item, sources):
+            return False
+    return True
+
+
+def _invoke_hermes(prompt: str, *, timeout: int, mode: str = "rewrite") -> str:
+    binary = find_hermes()
+    if binary is None:
+        return ""
+    argv = build_hermes_argv(prompt, binary, mode=mode)
+    if "--yolo" in argv:
+        return ""
+    try:
+        proc = subprocess.run(
+            argv,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=str(Path.home()),
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return _extract_reply(proc.stdout or "")
+
+
+def _run_hermes(prompt: str, *, timeout: int) -> str:
+    text = _invoke_hermes(prompt, timeout=timeout)
+    if not text or "Error:" in text[:80] or not _is_usable_reply(text):
+        return ""
+    return text
+
+
+def _partner_prompt(user_text: str, facts: str, *, with_tools: bool) -> str:
+    if with_tools:
+        extra = (
+            "问哪个群、交给测试的群：调用 feishu_chats（可带 query），不要搜文档。\n"
+            "材料不够就调用 feishu_* 工具补齐。不要用终端、不要改文件、不要发消息。\n"
+            "禁止把思考、指令或 FETCH 行发给用户；只输出给用户看的正文。\n"
+        )
+    else:
+        extra = (
+            "材料不够时，只输出一行（不要夹其它字）：\n"
+            "FETCH: today | tomorrow | tasks | weekly | brief | inbox | minutes | approval | chats | help\n"
+            "或 FETCH: search <关键词>\n"
+            "或 FETCH: read <飞书文档链接>\n"
+            "禁止 FETCH send / write_weekly / 任意命令。\n"
+        )
+    return (
+        "你是吴梦晨在飞书里的工作伙伴。根据【材料】用第一人称（我）写回复，像同事随口说，不要客服腔。\n"
+        "只根据材料，不许编造材料里没有的进度、会议、人名。\n"
+        "不要解释你是 AI，不要输出思考过程。\n"
+        f"{extra}"
+        "材料够了就只输出给用户看的完整正文。\n\n"
+        f"用户说：{user_text.strip() or '本周情况'}\n\n"
+        f"【材料】\n{facts.strip()[:3500]}"
+    )
+
+
+def rewrite_human(user_text: str, facts: str, *, timeout: int = 45) -> str:
+    """Return spoken rewrite, or empty string to keep the template facts."""
+    if not (facts or "").strip():
+        return ""
+    return _run_hermes(_prompt(user_text, facts), timeout=timeout)
+
+
+def rewrite_partner(user_text: str, facts: str, *, timeout: int = 90) -> str:
+    """P2P only: spoken reply, or a FETCH: line. Empty means keep facts."""
+    if not (facts or "").strip():
+        return ""
+    from .hermes_setup import ensure_profile
+
+    with_tools = ensure_profile()
+    text = _invoke_hermes(
+        _partner_prompt(user_text, facts, with_tools=with_tools),
+        timeout=timeout,
+        mode="partner" if with_tools else "rewrite",
+    )
+    if parse_fetch(text):
+        return text
+    if not text or "Error:" in text[:80] or not _is_usable_reply(text, limit=2500):
+        return ""
+    return text
+
+
+_BRIEF_STOP = (
+    "分析：",
+    "等等",
+    "最终结果",
+    "最终输出",
+    "最终润色",
+    "再看",
+    "再想",
+    "这样应该",
+    "再确认",
+    "材料中",
+    "优化后",
+)
+
+
+def _looks_like_brief_line(line: str) -> bool:
+    head = line.strip()
+    if not head:
+        return True
+    if head.startswith(("吴梦晨 ·", "【", "- ", "上一个工作日", "完成", "待回复")):
+        return True
+    return bool(head[0].isdigit() and len(head) > 2 and head[1] in ".)、")
+
+
+def _trim_brief_block(block: str) -> str:
+    lines: list[str] = []
+    seen_heading = False
+    for line in block.splitlines()[:28]:
+        head = line.strip()
+        if any(marker in head[:24] for marker in _THINK_MARKERS):
+            break
+        if any(head.startswith(stop) for stop in _BRIEF_STOP):
+            break
+        if seen_heading and head and not _looks_like_brief_line(line):
+            break
+        if head.startswith("【"):
+            seen_heading = True
+        lines.append(line)
+    return "\n".join(lines).strip()
+
+
+def isolate_brief(text: str) -> str:
+    """Hermes often leaks a long think; keep the last short 吴梦晨 · block."""
+    marker = "吴梦晨 ·"
+    index = (text or "").rfind(marker)
+    if index < 0:
+        return (text or "").strip()
+    return _trim_brief_block(text[index:])
+
+
+def _brief_candidates(text: str) -> list[str]:
+    marker = "吴梦晨 ·"
+    found: list[str] = []
+    start = 0
+    while True:
+        index = (text or "").find(marker, start)
+        if index < 0:
+            break
+        chunk = _trim_brief_block(text[index:])
+        if chunk and chunk not in found:
+            found.append(chunk)
+        start = index + len(marker)
+    return found
+
+
+def polish_brief(facts: str, *, timeout: int = 45) -> str:
+    """Keep brief headings; empty string means caller should keep the template."""
+    if os.environ.get("FEISHU_PARTNER_NO_LLM") == "1":
+        return ""
+    if not (facts or "").strip():
+        return ""
+    binary = find_hermes()
+    if binary is None:
+        return ""
+    argv = build_hermes_argv(_brief_prompt(facts), binary)
+    if "--yolo" in argv:
+        return ""
+    try:
+        proc = subprocess.run(
+            argv,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=str(Path.home()),
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    extracted = _extract_reply(proc.stdout or "")
+    hits = [
+        cand
+        for cand in _brief_candidates(extracted)
+        if cand and "Error:" not in cand[:80] and accept_polished_brief(facts, cand)
+    ]
+    for cand in reversed(hits):
+        if cand.strip() != facts.strip():
+            return cand
+    return ""
