@@ -25,6 +25,15 @@ def _strip_highlight(text: str) -> str:
     return html.unescape(re.sub(r"</?h>", "", text or ""))
 
 
+def plain_im_text(text: str) -> str:
+    """IM HTML → one-line markdown. Card markdown cannot render raw <p>."""
+    raw = html.unescape(text or "")
+    raw = re.sub(r"(?i)<br\s*/?>", "\n", raw)
+    raw = re.sub(r"(?i)</p>", "\n", raw)
+    raw = re.sub(r"<[^>]+>", "", raw)
+    return re.sub(r"[ \t]+", " ", raw.replace("\n", " ")).strip()
+
+
 def _when(value: Any) -> str:
     if isinstance(value, dict):
         raw = value.get("datetime") or value.get("time") or value.get("timestamp") or ""
@@ -327,7 +336,7 @@ def document_markdown(payload: dict[str, Any]) -> str:
     )
     if isinstance(content, dict):
         content = content.get("markdown") or content.get("text") or str(content)
-    return str(content or "").strip()
+    return _clean_feishu_md(str(content or ""))
 
 
 def format_doc(payload: dict[str, Any]) -> str:
@@ -341,8 +350,26 @@ def format_doc(payload: dict[str, Any]) -> str:
     return text
 
 
-def format_today(agenda_text: str, tasks_text: str) -> str:
-    return "【日程】\n" + agenda_text + "\n\n【待办】\n" + tasks_text
+def format_today(agenda_text: str, tasks_text: str, followups: str = "") -> str:
+    return format_day_work(agenda_text, tasks_text, followups)
+
+
+def format_day_work(agenda_text: str, tasks_text: str, followups: str = "") -> str:
+    agenda = (agenda_text or "").strip()
+    tasks = (tasks_text or "").strip()
+    work = (followups or "").strip()
+    empty_agenda = agenda in {"明天没有日程。", "今天没有日程。"}
+    empty_tasks = tasks == "没有未完成待办。"
+    parts: list[str] = []
+    if agenda and not empty_agenda:
+        parts.append("【日程】\n" + agenda)
+    if tasks and not empty_tasks:
+        parts.append("【待办】\n" + tasks)
+    if work:
+        parts.append("【要跟的活】\n" + work)
+    if not parts:
+        return "飞书待办是空的，这天也没有日程；跟进账里也没有未闭环的活。"
+    return "\n\n".join(parts)
 
 
 _STANDUP_NAMES = {"早会", "站会", "晨会", "每日站会", "晨会站会"}
@@ -533,6 +560,78 @@ def _clean_feishu_md(text: str) -> str:
     return text.strip()
 
 
+def _draft_bullets(md: str, limit: int = 12) -> list[str]:
+    out: list[str] = []
+    for line in (md or "").splitlines():
+        text = line.strip()
+        if not text or text.startswith("#") or text.startswith("!["):
+            continue
+        text = re.sub(r"^[-*]\s+", "", text)
+        if len(text) < 8:
+            continue
+        out.append(text[:160])
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _section_kind(title: str) -> str:
+    if any(key in title for key in ("外观", "尺寸", "做工", "配色", "手感")):
+        return "look"
+    if any(key in title for key in ("网速", "网络", "4G", "WiFi", "wifi", "流量", "时延")):
+        return "net"
+    return "feat"
+
+
+def _line_kind(line: str) -> str:
+    if any(key in line for key in ("外观", "电量", "配色", "尺寸", "正面图", "做工")):
+        return "look"
+    if any(key in line for key in ("网速", "4G", "WiFi", "wifi", "下载", "时延", "随身WiFi")):
+        return "net"
+    return "feat"
+
+
+def draft_doc_markdown(
+    title: str,
+    outline: str = "",
+    extras: list[str] | None = None,
+    *,
+    today: str = "",
+) -> str:
+    """Fill a 提纲 with existing doc bullets. Chat must not receive this raw."""
+    heads = [
+        item.strip()
+        for item in re.findall(r"(?m)^#{1,3}\s+(.+)$", outline or "")
+        if item.strip()
+    ]
+    if not heads:
+        heads = ["产品外观", "产品网速", "产品附带功能"]
+    buckets: dict[str, list[str]] = {"look": [], "net": [], "feat": []}
+    for extra in extras or []:
+        for line in _draft_bullets(_clean_feishu_md(extra)):
+            kind = _line_kind(line)
+            bucket = buckets[kind]
+            if line not in bucket and len(bucket) < 8:
+                bucket.append(line)
+    day = today or datetime.now().date().isoformat()
+    lines = [
+        f"# {title}",
+        "",
+        f"日期：{day}",
+        "说明：按提纲起草。材料来自飞书已有文档，不含本次实机跑分；待测项单独标明。",
+        "",
+    ]
+    for head in heads:
+        lines.append(f"## {head}")
+        items = buckets.get(_section_kind(head) or "feat") or []
+        if items:
+            lines.extend(f"- {item}" for item in items[:8])
+        else:
+            lines.append("- 待实测补：这一段提纲下还没有现成材料。")
+        lines.append("")
+    return "\n".join(lines).strip() + "\n"
+
+
 def _section_after(md: str, keywords: tuple[str, ...], stops: tuple[str, ...]) -> str:
     start_m = None
     for match in re.finditer(r"(?m)^(#{1,3})\s+(.+)$", md):
@@ -689,17 +788,30 @@ HELP_TEXT = """我是吴梦晨的飞书工作伙伴（自建，不走付费豆�
 单聊直接说；群里请 @我，或以「工作伙伴」「伙伴」开头。
 
 直接说事即可，例如：
-- 今天 / 今天的任务 / 明天 / 本周的周报 / 下周计划
-- 早报 / 简报  （昨天小结 + 今天规划；每天 09:00 也会推）
+- 今天 / 今天的任务 / 明天 / 明天的任务 / 简报  （单聊发卡片：日程可点、已接受绿色；空待办不会盖掉账里的活）
+- 本周的周报 / 下周计划
+- 任务规划 A6上线前检查 / 拆解 写周报  （按今天日程、待办、跟进账拆成可执行步骤）
+- 早报 / 简报  （昨天小结：推进/待回复/长期待办；今天：日程+TOP5；每天 09:00 也会推）
 - 待办 / 审批 / 会议纪要
+- 删掉某条待办  （先说待办，再贴标题 +「删除这个待办」；飞书是勾完成）
 - 搜 请假制度
 - 写周报  （生成一份飞书云文档）
+- 给我写个这个 / 写文档  （按提纲生成云文档，聊天只回链接，不甩原文）
 - 贴飞书文档链接  （我帮你读）
 - 群列表
 - 谁找我  （机器人所在群里 @你 或点名）
+- 今日待跟进 / 催办  （截止日期、对接人、你转交的催办）
+- 生成本周任务  （写入多维表「本周任务」+ 私聊清单；周一 09:05 也会跑）
+- 张三的回复如何 / 李四怎么说  （按人找会话和最近消息，不搜文档）
 - 回 APP沟通群那条已处理  （明早简报不再催；09:00 卡片按钮同一本账）
+- 能力对齐 / aily  （看和豆包工作伙伴的功能差距）
 
-只有「搜 关键词」才列文档。其余会读材料再分析作答。
+工作日 09:00 会再推一张「今日待跟进」卡（已完成 / 明天再说 / 忽略）。
+群里你 @别人会按对方建催办；「请王五处理」跟王五，不跟开口的人。
+同事单聊派活：开放平台不给机器人推人-人单聊。后台只在 09:00–18:00 每小时用你的登录身份拉最近会话（不是 messages-search）；记下新派活会私聊你。你说「今天 / 明天任务」时也会当场再拉一次做成【要跟的活】。
+表格艾特：先 `feishu followup --setup-tables`，再把要扫的表写进本机 bitable.json 的 scan_tables（3 分钟轮询，不是 messages-search）。
+
+只有「搜 关键词」或很短的主题词才搜文档。问某人回复、删待办、详细点、听不懂不会拿去搜。
 单聊里材料不够我会自己再取今天/待办/周报（隔离 Hermes，不碰你电脑终端），不会在群里调工具。
 群里@你或点名指派，机器人在那个群且 serve 开着才会记/推。
 

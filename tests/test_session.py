@@ -14,9 +14,9 @@ from partner.session import looks_like_followup, pick_index, save_turn
 
 
 class TaskIntentTests(unittest.TestCase):
-    def test_today_tasks_is_tasks_not_docs(self) -> None:
+    def test_today_tasks_is_today_not_docs(self) -> None:
         for text in ("今天的任务？", "今天的任务", "今日任务", "今天任务"):
-            self.assertEqual(parse_intent(text).action, "tasks", text)
+            self.assertEqual(parse_intent(text).action, "today", text)
 
 
 class FollowupTests(unittest.TestCase):

@@ -12,6 +12,7 @@ from partner.llm import (
     build_hermes_argv,
     isolate_brief,
     parse_fetch,
+    rewrite_plan,
     should_compose,
     should_partner,
 )
@@ -79,9 +80,48 @@ class HermesArgvTests(unittest.TestCase):
         self.assertFalse(_is_usable_reply(blob))
         self.assertTrue(_is_usable_reply("我这边下周主要把 A6 提测收掉。"))
 
+    def test_ssl_eof_is_not_a_user_reply(self) -> None:
+        blob = (
+            "[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of "
+            "protocol (_ssl.c:1016)"
+        )
+        self.assertFalse(_is_usable_reply(blob))
+        self.assertEqual(_extract_reply(blob), "")
+
+    def test_invoke_retries_ssl_once(self) -> None:
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from partner.llm import _invoke_hermes
+
+        ssl = (
+            "[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of "
+            "protocol (_ssl.c:1016)"
+        )
+        calls = {"n": 0}
+
+        class Proc:
+            def __init__(self, stdout: str, stderr: str = "") -> None:
+                self.stdout = stdout
+                self.stderr = stderr
+
+        def fake_run(*_a: object, **_k: object) -> Proc:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return Proc("", ssl)
+            return Proc("今天先把 A6 提测收掉。\n")
+
+        with patch("partner.llm.find_hermes", return_value=Path("/usr/bin/hermes")):
+            with patch("partner.llm.subprocess.run", side_effect=fake_run):
+                text = _invoke_hermes("hi", timeout=5)
+        self.assertEqual(calls["n"], 2)
+        self.assertIn("A6", text)
+
     def test_compose_gate(self) -> None:
         self.assertTrue(should_compose("weekly"))
         self.assertTrue(should_compose("minutes"))
+        self.assertFalse(should_compose("today"))
+        self.assertFalse(should_compose("tomorrow"))
         self.assertFalse(should_compose("search"))
         self.assertFalse(should_compose("help"))
         self.assertFalse(should_compose("brief"))
@@ -90,6 +130,10 @@ class HermesArgvTests(unittest.TestCase):
         self.assertTrue(should_partner("p2p", "unknown"))
         self.assertTrue(should_partner("p2p", "inbox"))
         self.assertFalse(should_partner("p2p", "send"))
+        self.assertFalse(should_partner("p2p", "today"))
+        self.assertFalse(should_partner("p2p", "tomorrow"))
+        self.assertFalse(should_partner("p2p", "brief"))
+        self.assertFalse(should_partner("p2p", "write_doc"))
         self.assertFalse(should_partner("group", "unknown"))
         self.assertFalse(should_partner("group", "weekly"))
 
@@ -97,16 +141,34 @@ class HermesArgvTests(unittest.TestCase):
         self.assertEqual(parse_fetch("FETCH: today"), ("today", ""))
         self.assertEqual(parse_fetch("FETCH: search 周报"), ("search", "周报"))
         self.assertEqual(parse_fetch("FETCH: read https://feishu.cn/x"), ("read", "https://feishu.cn/x"))
+        self.assertEqual(parse_fetch("FETCH: person 马丽敏"), ("person", "马丽敏"))
         self.assertIsNone(parse_fetch("FETCH: send oc_xxx 你好"))
         self.assertIsNone(parse_fetch("FETCH: write_weekly"))
+        self.assertIsNone(parse_fetch("FETCH: write_doc"))
         self.assertIsNone(parse_fetch("下周先把 A6 提测收掉。"))
         self.assertFalse(_is_usable_reply("FETCH: today"))
 
+    def test_rewrite_plan_requires_structured_plan(self) -> None:
+        from unittest.mock import patch
+
+        good = (
+            "任务规划：A6 上线\n"
+            "【当前判断】\n- 待办里有 A6\n"
+            "【执行步骤】\n1. 核对清单。\n"
+            "【可直接用的飞书动作】\n- feishu today\n"
+            "【需要确认】\n- 截止时间\n"
+        )
+        with patch("partner.llm._invoke_hermes", return_value=good):
+            self.assertEqual(rewrite_plan("A6 上线", "【待办】\n- A6"), good.strip())
+        with patch("partner.llm._invoke_hermes", return_value="随便做一下就行"):
+            self.assertEqual(rewrite_plan("A6 上线", "【待办】\n- A6"), "")
+
     def test_brief_prompt_forbids_invent(self) -> None:
-        prompt = _brief_prompt("吴梦晨 · 8月16日简报\n【昨天小结】\n- 研发部周会")
+        prompt = _brief_prompt("📋 每日工作简报 · 8月16日 (周六)\n一、昨天小结\n- 研发部周会")
         self.assertIn("不许编造", prompt)
-        self.assertIn("【昨天小结】", prompt)
-        self.assertIn("【今天规划】", prompt)
+        self.assertIn("一、昨天小结", prompt)
+        self.assertIn("二、今天规划", prompt)
+        self.assertIn("优先处理 TOP 5", prompt)
         self.assertNotIn("第一人称（我）", prompt)
 
     def test_accept_polished_brief_keeps_headings_rejects_invent(self) -> None:

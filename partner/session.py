@@ -90,6 +90,7 @@ def save_turn(
     query: str = "",
     action: str = "",
     pairs: list[tuple[str, str]] | list[list[str]] | None = None,
+    items: list[dict[str, Any]] | None = None,
 ) -> None:
     cid = (chat_id or "").strip()
     if not cid:
@@ -108,11 +109,20 @@ def save_turn(
     for item in pairs or []:
         if isinstance(item, (list, tuple)) and len(item) >= 2:
             clean_pairs.append([str(item[0]), str(item[1])])
+    clean_items: list[dict[str, str]] = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or item.get("summary") or "")
+        guid = str(item.get("guid") or item.get("id") or "")
+        if title or guid:
+            clean_items.append({"title": title, "guid": guid})
     blob[cid] = {
         "ts": datetime.now(CN_TZ).isoformat(timespec="seconds"),
         "kind": kind,
         "query": query,
         "action": action,
         "pairs": clean_pairs,
+        "items": clean_items,
     }
     path.write_text(json.dumps(blob, ensure_ascii=False, indent=2), encoding="utf-8")

@@ -15,6 +15,7 @@ class FeishuMcpTests(unittest.TestCase):
         names = {tool["name"] for tool in resp["result"]["tools"]}
         self.assertIn("feishu_today", names)
         self.assertIn("feishu_search", names)
+        self.assertIn("feishu_person", names)
         self.assertNotIn("feishu_send", names)
         self.assertNotIn("feishu_write_weekly", names)
 

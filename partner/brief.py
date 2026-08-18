@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
+import fcntl
+import os
 from pathlib import Path
 from typing import Any
 
-from .formatters import _items, _when
+from .formatters import _items, _when, plain_im_text
 from .ids import P2P_CHAT_ID, USER_OPEN_ID, USER_NAMES
 from .inbox import recent_items
 from .lark import run_lark
 from .llm import accept_polished_brief, polish_brief
-from .resolved import is_resolved, pending_key, pending_line, save_pending
+from .resolved import is_resolved, pending_key, save_pending
 
 CN_TZ = timezone(timedelta(hours=8))
 STAMP = Path.home() / ".feishu-partner" / "brief-sent.on"
@@ -226,6 +228,8 @@ def long_term_task_lines(
         title = str(item.get("summary") or item.get("title") or "").strip()
         if not title or title in skip or any(title in row for row in skip_titles):
             continue
+        if item.get("completed_at") or item.get("complete_time"):
+            continue
         created = parse_msg_time(item.get("created_at") or item.get("create_time"))
         if created is None:
             continue
@@ -248,42 +252,215 @@ def pick_priorities(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return ranked[:5]
 
 
+_LEVEL_RANK = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+_RSVP = {
+    "accept": "已接受",
+    "accepted": "已接受",
+    "needs_action": "待回复",
+    "decline": "已拒绝",
+    "declined": "已拒绝",
+    "tentative": "待定",
+}
+_WD = "一二三四五六日"
+
+
+def cn_day(day: date, *, paren: bool = True) -> str:
+    wd = f"周{_WD[day.weekday()]}"
+    if paren:
+        return f"{day.month}月{day.day}日 ({wd})"
+    return f"{day.month}月{day.day}日 {wd}"
+
+
+def _infer_level(item: dict[str, Any]) -> str:
+    if item.get("level") in _LEVEL_RANK:
+        return str(item["level"])
+    kind = str(item.get("kind") or "")
+    if kind == "meeting":
+        return "P0"
+    if item.get("blocks") and item.get("urgent"):
+        return "P1"
+    if item.get("blocks"):
+        return "P2"
+    if item.get("urgent"):
+        return "P2"
+    return "P3"
+
+
+def _infer_reason(item: dict[str, Any]) -> str:
+    if item.get("reason"):
+        return str(item["reason"])
+    kind = str(item.get("kind") or "")
+    if kind == "meeting":
+        return "固定会议"
+    if kind == "approval":
+        return "卡审批"
+    if kind == "reply":
+        return "待回复，卡进度"
+    if item.get("blocks"):
+        return "卡人"
+    if item.get("urgent"):
+        return "紧急"
+    return "待跟进"
+
+
+def rank_priorities(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for item in candidates:
+        title = str(item.get("title") or "").strip()
+        if not title:
+            continue
+        if item.get("kind") != "meeting" and not (item.get("blocks") or item.get("urgent")):
+            continue
+        rows.append(
+            {
+                "title": title,
+                "level": _infer_level(item),
+                "reason": _infer_reason(item),
+                "blocks": bool(item.get("blocks")),
+                "urgent": bool(item.get("urgent")),
+                "kind": str(item.get("kind") or ""),
+            }
+        )
+    rows.sort(
+        key=lambda row: (
+            _LEVEL_RANK.get(str(row["level"]), 9),
+            not row["blocks"],
+            not row["urgent"],
+        )
+    )
+    return rows[:5]
+
+
+def work_priorities(
+    priorities: list[Any],
+    *,
+    agenda: list[Any] | None = None,
+) -> list[dict[str, Any]]:
+    rows = [item for item in priorities if isinstance(item, dict) and item.get("title")]
+    if agenda:
+        rows = [item for item in rows if item.get("kind") != "meeting"]
+    return rows
+
+
+def pending_brief_line(item: dict[str, Any]) -> str:
+    who = str(item.get("sender_name") or "").strip()
+    where = str(item.get("chat_name") or "群")
+    text = plain_im_text(str(item.get("text") or ""))
+    tag = str(item.get("tag") or "").strip()
+    head = f"{who}（{where}）" if who else where
+    line = f"{head}：{text}" if text else head
+    if tag:
+        line += f"（{tag}）"
+    return line
+
+
+def _sender_name(hit: dict[str, Any]) -> str:
+    sender = hit.get("sender")
+    if isinstance(sender, dict):
+        return str(sender.get("name") or sender.get("sender_name") or "").strip()
+    return str(hit.get("sender_name") or "").strip()
+
+
+def agenda_entries(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    if payload.get("ok") is False:
+        return []
+    out: list[dict[str, Any]] = []
+    for item in _items(payload, "events", "items", "calendar_events"):
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("summary") or item.get("title") or "").strip()
+        if not title:
+            continue
+        start = _when(item.get("start_time") or item.get("start"))
+        end = _when(item.get("end_time") or item.get("end"))
+        org = item.get("event_organizer") or item.get("organizer") or {}
+        organizer = ""
+        if isinstance(org, dict):
+            organizer = str(org.get("display_name") or org.get("name") or "").strip()
+        rsvp = _RSVP.get(str(item.get("self_rsvp_status") or "").lower(), "")
+        vchat = item.get("vchat") if isinstance(item.get("vchat"), dict) else {}
+        out.append(
+            {
+                "title": title,
+                "start": start,
+                "end": end,
+                "organizer": organizer,
+                "rsvp": rsvp,
+                "app_link": str(item.get("app_link") or "").strip(),
+                "meet_url": str(vchat.get("meeting_url") or "").strip(),
+                "event_id": str(item.get("event_id") or "").strip(),
+            }
+        )
+    return out
+
+
+def format_agenda_today(entry: dict[str, Any]) -> str:
+    start = str(entry.get("start") or "")
+    end = str(entry.get("end") or "")
+    when = f"{start}–{end}" if start and end else start or end
+    bits = [f"{when} {entry.get('title') or ''}".strip() if when else str(entry.get("title") or "")]
+    if entry.get("organizer"):
+        bits.append(str(entry["organizer"]))
+    if entry.get("rsvp"):
+        bits.append(str(entry["rsvp"]))
+    return " · ".join(bit for bit in bits if bit)
+
+
+def format_agenda_progress(entry: dict[str, Any]) -> str:
+    start = str(entry.get("start") or "")
+    end = str(entry.get("end") or "")
+    when = f"{start}–{end}" if start and end else start
+    org = str(entry.get("organizer") or "")
+    extra = when + (f"，{org}" if org and when else org)
+    title = str(entry.get("title") or "")
+    if extra:
+        return f"{title}（{extra}）（已结束）"
+    return f"{title}（已结束）"
+
+
 def format_daily_brief(
     *,
     today: date,
     workday: date,
     progressed: list[str],
     unreplied: list[str],
-    priorities: list[str],
+    priorities: list[Any],
     week_notes: list[str],
     today_agenda: list[str] | None = None,
     long_term: list[str] | None = None,
 ) -> str:
-    lines = [f"吴梦晨 · {today.month}月{today.day}日简报"]
-    if progressed or unreplied:
-        lines += ["", f"【昨天小结】上一个工作日 {workday.month}/{workday.day}"]
+    lines = [f"📋 每日工作简报 · {cn_day(today)}"]
+    if progressed or unreplied or long_term:
+        lines += ["", f"一、昨天小结（{cn_day(workday, paren=False)}）"]
         if progressed:
-            lines.append("完成/推进")
+            lines.append("推进事项")
             lines.extend(f"- {item}" for item in progressed)
         if unreplied:
-            lines.append("待处理")
-            lines.extend(f"- {item}" for item in unreplied)
+            lines.append(f"⚠️ 待处理 / 待回复（{len(unreplied)}项）")
+            for index, item in enumerate(unreplied, 1):
+                lines.append(f"{index}. {item}")
         if long_term:
-            lines.append("长期待办")
+            lines.append(f"长期待办（{len(long_term)}项）")
             lines.extend(f"- {item}" for item in long_term)
-    elif long_term:
-        lines += ["", f"【昨天小结】上一个工作日 {workday.month}/{workday.day}"]
-        lines.append("长期待办")
-        lines.extend(f"- {item}" for item in long_term)
     if priorities or today_agenda:
-        lines += ["", "【今天规划】"]
+        lines += ["", f"二、今天规划（{cn_day(today, paren=False)}）"]
         if today_agenda:
             lines.append("今日日程")
             lines.extend(f"- {item}" for item in today_agenda)
-        if priorities:
-            lines.append("优先")
+        shown = work_priorities(priorities, agenda=today_agenda) if today_agenda else [
+            item for item in priorities if isinstance(item, dict)
+        ]
+        if shown:
+            lines.append("优先处理（待办 / 回复，不含已列日程）")
+            for item in shown:
+                lines.append(f"{item.get('level') or 'P3'}  {item.get('title')}")
+                if item.get("reason"):
+                    lines.append(f"    {item['reason']}")
+        elif any(isinstance(item, str) for item in priorities):
+            lines.append("优先处理")
             for index, item in enumerate(priorities, 1):
-                lines.append(f"{index}. {item}")
+                if isinstance(item, str):
+                    lines.append(f"{index}. {item}")
     elif week_notes:
         lines += ["", "【本周值得关注】"]
         lines.extend(f"- {item}" for item in week_notes)
@@ -292,18 +469,24 @@ def format_daily_brief(
     return "\n".join(lines)
 
 
-def _agenda_lines(payload: dict[str, Any]) -> list[str]:
+def completed_task_lines(payload: dict[str, Any], day: date) -> list[str]:
     if payload.get("ok") is False:
         return []
     out: list[str] = []
-    for item in _items(payload, "events", "items", "calendar_events"):
+    for item in _items(payload, "items", "tasks"):
         if not isinstance(item, dict):
             continue
         title = str(item.get("summary") or item.get("title") or "").strip()
         if not title:
             continue
-        when = _when(item.get("start_time") or item.get("start"))
-        out.append(f"{title}" + (f"（{when}）" if when else ""))
+        done = parse_msg_time(
+            item.get("completed_at") or item.get("complete_time") or item.get("updated_at")
+        )
+        if done is None or done.date() != day:
+            continue
+        out.append(f"{title}（已结束）")
+        if len(out) >= 5:
+            break
     return out
 
 
@@ -413,7 +596,12 @@ def _collect(now: datetime) -> dict[str, Any]:
         as_identity="user",
     )
 
-    progressed = [f"{line}（已结束）" for line in _agenda_lines(y_agenda)]
+    progressed = [format_agenda_progress(entry) for entry in agenda_entries(y_agenda)]
+    done_tasks = run_lark(
+        ["task", "+search", "--completed", "--page-limit", "20"],
+        as_identity="user",
+    )
+    progressed.extend(completed_task_lines(done_tasks, workday))
     if minutes.get("ok") is not False:
         for item in _items(minutes, "minutes", "items", "list"):
             if not isinstance(item, dict):
@@ -482,6 +670,7 @@ def _collect(now: datetime) -> dict[str, Any]:
                     ),
                     "chat_id": str(hit.get("chat_id") or ""),
                     "chat_name": str(hit.get("chat_name") or hit.get("chat_id") or "群"),
+                    "sender_name": _sender_name(hit),
                     "text": text,
                     "tag": tag,
                     "link": str(hit.get("message_app_link") or "").strip(),
@@ -508,6 +697,7 @@ def _collect(now: datetime) -> dict[str, Any]:
                 ),
                 "chat_id": str(item.get("chat_id") or ""),
                 "chat_name": str(item.get("chat_name") or "群"),
+                "sender_name": _sender_name(item),
                 "text": text,
                 "tag": tag,
                 "link": "",
@@ -530,12 +720,37 @@ def _collect(now: datetime) -> dict[str, Any]:
                     }
                 )
     save_pending(pending[:8])
-    unreplied = [pending_line(item) for item in pending[:8]]
+    unreplied = [pending_brief_line(item) for item in pending[:8]]
 
     candidates: list[dict[str, Any]] = []
+    today_entries = agenda_entries(t_agenda)
+    today_agenda = [format_agenda_today(entry) for entry in today_entries]
+    for entry in today_entries:
+        when = ""
+        if entry.get("start") and entry.get("end"):
+            when = f"（{entry['start']}–{entry['end']}）"
+        elif entry.get("start"):
+            when = f"（{entry['start']}）"
+        reason = "固定会议"
+        if entry.get("organizer"):
+            reason += f"，{entry['organizer']}组织"
+        if entry.get("rsvp"):
+            reason += f"，{entry['rsvp']}"
+        candidates.append(
+            {
+                "title": f"{entry['title']}{when}",
+                "blocks": True,
+                "urgent": True,
+                "kind": "meeting",
+                "level": "P0",
+                "reason": reason,
+            }
+        )
     if tasks.get("ok") is not False:
         for item in _items(tasks, "items", "tasks"):
             if not isinstance(item, dict):
+                continue
+            if item.get("completed_at") or item.get("complete_time"):
                 continue
             title = str(item.get("summary") or item.get("title") or "").strip()
             if not title:
@@ -549,23 +764,60 @@ def _collect(now: datetime) -> dict[str, Any]:
             if urgent:
                 tag.append("紧急" if due and due < today else "今日截止")
             label = title + f"（{'·'.join(tag)}）"
-            candidates.append({"title": label, "blocks": blocks, "urgent": urgent})
+            candidates.append(
+                {
+                    "title": label,
+                    "blocks": blocks,
+                    "urgent": urgent,
+                    "kind": "task",
+                    "reason": "过期待办" if due and due < today else ("今日截止" if urgent else "待办"),
+                }
+            )
     for line in approval_priority_lines(approvals):
-        candidates.append({"title": f"{line}（未完成·卡人）", "blocks": True, "urgent": True})
-    today_agenda = _agenda_lines(t_agenda)
-    for line in unreplied[:4]:
-        candidates.append({"title": f"回：{line}", "blocks": True, "urgent": True})
+        candidates.append(
+            {
+                "title": f"{line}（未完成·卡人）",
+                "blocks": True,
+                "urgent": True,
+                "kind": "approval",
+                "level": "P1",
+                "reason": "卡审批",
+            }
+        )
+    for item in pending[:4]:
+        tag = str(item.get("tag") or "")
+        who = str(item.get("sender_name") or "").strip()
+        where = str(item.get("chat_name") or "群")
+        title = f"回复{who}" if who else f"回 {where} 那条"
+        quote = clip_line(str(item.get("text") or ""), 24)
+        if quote:
+            title += f"：{quote}"
+        candidates.append(
+            {
+                "title": title,
+                "blocks": True,
+                "urgent": True,
+                "kind": "reply",
+                "level": "P1" if "未回复" in tag else "P2",
+                "reason": "未回复，卡进度" if "未回复" in tag else "已追问未答完",
+            }
+        )
 
-    picked = pick_priorities(candidates)
-    priorities = dedupe_priorities(unreplied, [str(item["title"]) for item in picked])
-    long_term = long_term_task_lines(tasks, today=today, skip_titles=priorities)
+    picked = rank_priorities(candidates)
+    titles = dedupe_priorities(unreplied, [str(item["title"]) for item in picked])
+    priorities = [
+        {**item, "title": title} for item, title in zip(picked, titles)
+    ]
+    long_term = long_term_task_lines(
+        tasks, today=today, skip_titles=[str(item["title"]) for item in priorities]
+    )
 
-    today_titles = {line.split("（")[0] for line in today_agenda}
+    today_titles = {entry["title"] for entry in today_entries}
     week_notes: list[str] = []
-    for line in _agenda_lines(w_agenda):
-        head = line.split("（")[0]
-        if head in today_titles:
+    for entry in agenda_entries(w_agenda):
+        if entry["title"] in today_titles:
             continue
+        line = format_agenda_today(entry)
         if line not in week_notes:
             week_notes.append(line)
         if len(week_notes) >= 3:
@@ -577,7 +829,9 @@ def _collect(now: datetime) -> dict[str, Any]:
         "priorities": priorities,
         "week_notes": week_notes,
         "today_agenda": today_agenda,
+        "today_entries": today_entries,
         "long_term": long_term,
+        "pending": pending[:8],
         "workday": workday.isoformat(),
         "today": today.isoformat(),
     }
@@ -588,6 +842,13 @@ def snapshot_pending(now: datetime | None = None) -> None:
     if now.tzinfo is None:
         now = now.replace(tzinfo=CN_TZ)
     _collect(now.astimezone(CN_TZ))
+
+
+def collect_brief(now: datetime | None = None) -> dict[str, Any]:
+    now = now or datetime.now(CN_TZ)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=CN_TZ)
+    return _collect(now.astimezone(CN_TZ))
 
 
 def brief_text(now: datetime | None = None) -> str:
@@ -625,26 +886,55 @@ def mark_pushed(now: datetime | None = None) -> None:
     STAMP.write_text(now.astimezone(CN_TZ).date().isoformat() + "\n", encoding="utf-8")
 
 
+def claim_daily_stamp(path: Path, now: datetime, *, force: bool = False) -> bool:
+    """Flock then write today's date. False if another process already claimed today."""
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=CN_TZ)
+    today = now.astimezone(CN_TZ).date().isoformat()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(str(path), os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        raw = os.read(fd, 64).decode("utf-8").strip()
+        if raw == today and not force:
+            return False
+        os.lseek(fd, 0, os.SEEK_SET)
+        os.ftruncate(fd, 0)
+        os.write(fd, (today + "\n").encode("utf-8"))
+        os.fsync(fd)
+        return True
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
+
 def push_brief(*, force: bool = False, now: datetime | None = None) -> str:
     from .actions import send_card, send_text
-    from .resolved import load_pending, pending_card
+    from .brief_card import brief_card
 
     now = now or datetime.now(CN_TZ)
-    if already_pushed(now) and not force:
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=CN_TZ)
+    now = now.astimezone(CN_TZ)
+    if not claim_daily_stamp(STAMP, now, force=force):
         return "今日简报已推过。"
-    text = brief_text(now)
-    result = send_text(P2P_CHAT_ID, text, as_identity="bot")
+    data = _collect(now)
+    text = format_daily_brief(
+        today=date.fromisoformat(data["today"]),
+        workday=date.fromisoformat(data["workday"]),
+        progressed=data["progressed"],
+        unreplied=data["unreplied"],
+        priorities=data["priorities"],
+        week_notes=data["week_notes"],
+        today_agenda=data.get("today_agenda") or [],
+        long_term=data.get("long_term") or [],
+    )
+    card_res = send_card(P2P_CHAT_ID, brief_card(data), as_identity="bot")
+    if card_res == "已发送。":
+        return "已推送今日简报。\n\n" + text
+    spoken = polish_brief(text)
+    fallback = spoken if spoken and accept_polished_brief(text, spoken) else text
+    result = send_text(P2P_CHAT_ID, fallback, as_identity="bot")
     if result != "已发送。":
-        return result + "\n\n" + text
-    mark_pushed(now)
-    extra = ""
-    items = [
-        item
-        for item in load_pending()
-        if item.get("key") and not is_resolved(str(item.get("key") or ""))
-    ]
-    if items:
-        card_res = send_card(P2P_CHAT_ID, pending_card(items), as_identity="bot")
-        if card_res != "已发送。":
-            extra = "\n（卡片没发出，文字「某群那条已处理」仍可用）"
-    return "已推送今日简报。" + extra + "\n\n" + text
+        return card_res + "\n" + result + "\n\n" + fallback
+    return "卡片没发出，已改发文字。\n" + card_res + "\n\n" + fallback

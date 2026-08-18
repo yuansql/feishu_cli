@@ -26,6 +26,8 @@ class InboundMessage:
     sender_type: str = ""
     sender_id: str = ""
     mention_ids: tuple[str, ...] = field(default_factory=tuple)
+    mentions: tuple[tuple[str, str], ...] = field(default_factory=tuple)
+    sender_name: str = ""
     chat_name: str = ""
     woke: bool = False
 
@@ -98,21 +100,27 @@ def extract_inbound_message(payload: Any) -> InboundMessage | None:
     else:
         text = str(content or "")
     mentions = data.get("mentions") or []
-    mention_ids = tuple(
-        mid
-        for m in mentions
-        if isinstance(m, dict)
-        for mid in (_mention_open_id(m),)
-        if mid
-    )
+    mention_pairs: list[tuple[str, str]] = []
+    mention_ids_list: list[str] = []
+    for mention in mentions:
+        if not isinstance(mention, dict):
+            continue
+        mid = _mention_open_id(mention)
+        if not mid:
+            continue
+        mention_ids_list.append(mid)
+        mention_pairs.append((mid, str(mention.get("name") or "")))
+    mention_ids = tuple(mention_ids_list)
     woke = looks_like_wake(text)
     sender_type = str(data.get("sender_type") or data.get("senderType") or "")
     sender = data.get("sender")
+    sender_name = str(data.get("sender_name") or "")
     if isinstance(sender, dict):
         sender_type = sender_type or str(sender.get("sender_type") or sender.get("type") or "")
         sender_id = _mention_open_id(
             {"id": sender.get("id") or sender.get("open_id") or data.get("sender_id")}
         )
+        sender_name = sender_name or str(sender.get("name") or sender.get("sender_name") or "")
     else:
         sender_id = str(data.get("sender_id") or "")
     return InboundMessage(
@@ -123,6 +131,8 @@ def extract_inbound_message(payload: Any) -> InboundMessage | None:
         sender_type=sender_type,
         sender_id=sender_id,
         mention_ids=mention_ids,
+        mentions=tuple(mention_pairs),
+        sender_name=sender_name,
         chat_name=str(data.get("chat_name") or data.get("chatName") or ""),
         woke=woke,
     )

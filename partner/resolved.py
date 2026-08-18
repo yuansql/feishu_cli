@@ -15,7 +15,10 @@ _DEFAULT_RESOLVED = Path.home() / ".feishu-partner" / "resolved.jsonl"
 _DEFAULT_PENDING = Path.home() / ".feishu-partner" / "pending.json"
 
 _DONE = (
+    "已经解决了",
     "已经处理",
+    "已解决",
+    "解决了",
     "已处理",
     "搞定了",
     "搞定",
@@ -26,10 +29,16 @@ _DONE = (
     "销了",
 )
 _HINT_NOISE = (
+    "已经解决了",
+    "已经处理",
+    "已解决",
+    "解决了",
+    "这块",
+    "这个我",
+    "这个",
     "回 ",
     "那条",
     "那件事",
-    "已经处理",
     "已处理",
     "搞定了",
     "搞定",
@@ -49,6 +58,18 @@ _HINT_NOISE = (
     ")",
     "·",
 )
+
+
+def assign_reply_body(raw: str) -> str:
+    """Extract the new sentence from lark-cli's flattened reply payload."""
+    head, separator, body = (raw or "").partition("\n\n")
+    if (
+        not separator
+        or not head.startswith("刚记下")
+        or "派你的活：\n" not in head
+    ):
+        return ""
+    return body.strip()
 
 
 def looks_like_resolve(raw: str) -> bool:
@@ -238,21 +259,61 @@ def ensure_pending_snapshot() -> None:
 
 
 def resolve_text(raw: str) -> str:
+    from .followup import apply_action, format_assign_push, open_followups_as_pending
+
     items = load_pending()
     hint = resolve_hint(raw)
-    hits = match_pending(hint, items)
+    followups = open_followups_as_pending()
+    reply = assign_reply_body(raw)
+    if reply:
+        quoted = (raw or "").partition("\n\n")[0]
+        hits = [
+            item
+            for item in followups
+            if format_assign_push(
+                {
+                    "asker_name": item.get("chat_name"),
+                    "text": item.get("text"),
+                }
+            )
+            == quoted
+        ]
+        if len(hits) == 1:
+            item = hits[0]
+            result = apply_action("fu_done", str(item.get("key") or ""))
+            if not result.startswith("已记下"):
+                return result
+            who = str(item.get("chat_name") or "对方").strip()
+            task = str(item.get("text") or "").replace("\n", " ").strip()
+            if len(task) > 72:
+                task = task[:72] + "…"
+            return f"已读回引，{who}「{task}」这条已解决，不再催。"
+        if len(hits) > 1:
+            return "回引内容对上多条重复任务，先不销账：\n" + _list_items(hits)
+        return "我读到了你回复的原消息，但它已经不在待处理里；没有动其他条。"
+    weak = not hint
+    if weak:
+        hits = match_pending("", followups)
+        if not hits:
+            hits = match_pending("", items) or match_pending("", inbox_as_pending())
+    else:
+        hits = match_pending(hint, items)
+        if not hits:
+            hits = match_pending(hint, inbox_as_pending())
+        if not hits:
+            hits = match_pending(hint, followups)
     if not hits:
-        hits = match_pending(hint, inbox_as_pending())
-    if not hits:
-        leftover = match_pending("", items) or match_pending("", inbox_as_pending())
+        leftover = followups or match_pending("", items) or match_pending("", inbox_as_pending())
         if leftover:
             return "没对上待处理。当前还有：\n" + _list_items(leftover)
         return "没对上待处理，本地也没有今早那批待办。先说「简报」我再列一次。"
     if len(hits) > 1:
-        return "对上好几条，再说清楚点（群名或原文几个字）：\n" + _list_items(hits)
+        return "对上好几条，再说清楚点（人名、群名或原文几个字）：\n" + _list_items(hits)
     item = hits[0]
     key = str(item.get("key") or "")
     name = str(item.get("chat_name") or "那条")
+    if key.startswith("fu:"):
+        return apply_action("fu_done", key)
     if not mark_resolved(
         key,
         source="text",

@@ -9,6 +9,7 @@ from .formatters import (
     _chat_tokens,
     _items,
     document_markdown,
+    draft_doc_markdown,
     format_agenda,
     format_approvals,
     format_chats,
@@ -18,6 +19,7 @@ from .formatters import (
     format_lark_error,
     format_minutes,
     format_tasks,
+    format_day_work,
     format_today,
     format_topic_brief,
     format_weekly_from_doc,
@@ -28,23 +30,27 @@ from .formatters import (
     pick_personal_weekly,
 )
 from .brief import brief_text
+from .aily import alignment_text
 from .ids import WEEKLY_QUERY
 from .inbox import recent_items
-from .intents import Intent, parse_intent
+from .intents import Intent, looks_like_bare_search, parse_intent
 from .lark import run_lark
 from .hermes_setup import ensure_profile, profile_status_line
 from .llm import (
+    classify_intent,
     hermes_available,
     parse_fetch,
     rewrite_human,
     rewrite_partner,
     should_compose,
     should_partner,
+    _is_usable_reply,
 )
 from .schedule import schedule_status_lines
 from .watch import format_inbox_digest
 from .resolved import ensure_pending_snapshot, resolve_text
 from .session import load_turn, looks_like_followup, pick_index, save_turn
+from .planner import plan_text
 
 CN_TZ = timezone(timedelta(hours=8))
 
@@ -150,19 +156,37 @@ def doctor_text() -> str:
     return "\n".join(chunks)
 
 
+def _open_followup_text() -> str:
+    from .followup import followups_for_command
+
+    return followups_for_command()
+
+
 def today_text() -> str:
     agenda = run_lark(["calendar", "+agenda"], as_identity="user")
     tasks = run_lark(
         ["task", "+get-my-tasks", "--complete=false", "--page-limit", "20"],
         as_identity="user",
     )
-    return format_today(format_agenda(agenda), format_tasks(tasks))
+    return format_today(
+        format_agenda(agenda),
+        format_tasks(tasks),
+        _open_followup_text(),
+    )
 
 
 def tomorrow_text() -> str:
     start, end = _day_bounds(1)
     agenda = _agenda_range(start, end)
-    return format_agenda(agenda, heading="明日日程", empty="明天没有日程。")
+    tasks = run_lark(
+        ["task", "+get-my-tasks", "--complete=false", "--page-limit", "20"],
+        as_identity="user",
+    )
+    return format_day_work(
+        format_agenda(agenda, heading="明日日程", empty="明天没有日程。"),
+        format_tasks(tasks),
+        _open_followup_text(),
+    )
 
 
 def _next_week_bounds(now: datetime | None = None) -> tuple[datetime, datetime]:
@@ -265,12 +289,162 @@ def write_weekly_text() -> str:
     return format_lark_error(created) + "\n\n先把摘要放这儿：\n" + body
 
 
-def tasks_text() -> str:
+def write_doc_text(query: str = "") -> str:
+    asked = (query or "").strip()
+    if not asked:
+        return "说一下要写的标题，或把提纲文档链接发我。"
+    url = ""
+    title = asked
+    from .intents import _URL_RE
+
+    url_m = _URL_RE.search(asked)
+    if url_m:
+        url = url_m.group(0).rstrip(")。,，")
+        leftover = _URL_RE.sub(" ", asked).strip()
+        title = leftover or "未命名文档"
+    if not url:
+        docs = run_lark(
+            ["docs", "+search", "--query", asked, "--page-size", "5"],
+            as_identity="user",
+        )
+        if docs.get("ok") is False:
+            return format_lark_error(docs)
+        pairs = material_pairs(docs, limit=5)
+        if not pairs or not pairs[0][1]:
+            return f"没搜到《{asked}》提纲，换个标题或把链接发我。"
+        title, url = pairs[0]
+    fetched = run_lark(
+        ["docs", "+fetch", "--doc", url, "--doc-format", "markdown", "--detail", "simple"],
+        as_identity="user",
+    )
+    outline = document_markdown(fetched)
+    extras: list[str] = []
+    related = run_lark(
+        ["docs", "+search", "--query", title, "--page-size", "5"],
+        as_identity="user",
+    )
+    if related.get("ok"):
+        for rel_title, rel_url in material_pairs(related, limit=5):
+            if not rel_url or rel_url == url:
+                continue
+            extra_hit = run_lark(
+                [
+                    "docs",
+                    "+fetch",
+                    "--doc",
+                    rel_url,
+                    "--doc-format",
+                    "markdown",
+                    "--detail",
+                    "simple",
+                ],
+                as_identity="user",
+            )
+            body = document_markdown(extra_hit)
+            if body:
+                extras.append(f"# {rel_title}\n{body}")
+            if len(extras) >= 2:
+                break
+    markdown = draft_doc_markdown(title, outline, extras)
+    new_title = f"{title} · {datetime.now(CN_TZ).date().isoformat()}"
+    created = run_lark(
+        [
+            "docs",
+            "+create",
+            "--title",
+            new_title,
+            "--doc-format",
+            "markdown",
+            "--content",
+            markdown,
+        ],
+        as_identity="user",
+    )
+    if created.get("ok"):
+        link = _created_doc_link(created)
+        extra = f"\n{link}" if link else ""
+        return f"已生成云文档《{new_title}》。{extra}\n聊天里不贴正文，打开文档看。"
+    return format_lark_error(created)
+
+
+def task_rows(payload: dict[str, Any]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for item in _items(payload, "items", "tasks"):
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("summary") or item.get("title") or "").strip()
+        guid = str(item.get("guid") or item.get("task_id") or item.get("id") or "").strip()
+        if title or guid:
+            rows.append({"title": title, "guid": guid})
+    return rows
+
+
+def match_tasks(hint: str, rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    needle = (hint or "").strip()
+    open_rows = [row for row in rows if row.get("guid") or row.get("title")]
+    if not needle:
+        return open_rows
+    hits: list[dict[str, str]] = []
+    for row in open_rows:
+        title = row.get("title") or ""
+        if needle in title or (title and title in needle):
+            hits.append(row)
+    return hits
+
+
+def tasks_bundle() -> tuple[str, list[dict[str, str]]]:
     payload = run_lark(
         ["task", "+get-my-tasks", "--complete=false", "--page-limit", "20"],
         as_identity="user",
     )
-    return format_tasks(payload)
+    return format_tasks(payload), task_rows(payload)
+
+
+def tasks_text() -> str:
+    return tasks_bundle()[0]
+
+
+def complete_task_text(
+    hint: str,
+    *,
+    session_items: list[dict[str, Any]] | None = None,
+) -> str:
+    payload = run_lark(
+        ["task", "+get-my-tasks", "--complete=false", "--page-limit", "20"],
+        as_identity="user",
+    )
+    if payload.get("ok") is False:
+        return format_lark_error(payload)
+    rows = task_rows(payload)
+    extra = [
+        {
+            "title": str(item.get("title") or item.get("summary") or ""),
+            "guid": str(item.get("guid") or ""),
+        }
+        for item in (session_items or [])
+        if isinstance(item, dict)
+    ]
+    hits = match_tasks(hint, rows) or match_tasks(hint, extra)
+    if not hits:
+        if rows:
+            listed = "\n".join(f"- {row['title']}" for row in rows[:8])
+            return "没对上要勾的待办。当前未完成：\n" + listed
+        return "没有未完成待办可勾。"
+    if len(hits) > 1:
+        listed = "\n".join(f"- {row['title']}" for row in hits[:8])
+        return "对上好几条待办，把标题再说清楚点：\n" + listed
+    item = hits[0]
+    guid = item.get("guid") or ""
+    title = item.get("title") or "这条"
+    if not guid:
+        return f"找到《{title}》但没有任务 ID，没法在飞书勾掉。"
+    result = run_lark(
+        ["task", "+complete", "--task-id", guid],
+        as_identity="user",
+    )
+    if result.get("ok"):
+        return f"已勾完成：{title}\n（飞书待办是标记完成，不是从回收站抹掉。）"
+    return format_lark_error(result)
 
 
 def analyze_result(query: str) -> tuple[str, list[tuple[str, str]]]:
@@ -406,6 +580,197 @@ def chats_text(query: str = "") -> str:
     return format_chats(payload, query=q)
 
 
+def _message_body(msg: dict[str, Any]) -> str:
+    content = msg.get("content")
+    if isinstance(content, dict):
+        text = content.get("text") or ""
+    else:
+        text = msg.get("text") or content or ""
+    return str(text or "").replace("\n", " ").strip()
+
+
+def _message_who(msg: dict[str, Any]) -> str:
+    sender = msg.get("sender")
+    if isinstance(sender, dict):
+        return str(sender.get("name") or sender.get("sender_name") or "").strip()
+    return str(msg.get("sender_name") or "").strip()
+
+
+def _recent_messages(chat_id: str) -> list[dict[str, Any]]:
+    if not chat_id:
+        return []
+    payload = run_lark(
+        [
+            "im",
+            "+chat-messages-list",
+            "--chat-id",
+            chat_id,
+            "--order",
+            "desc",
+            "--page-size",
+            "15",
+            "--no-reactions",
+        ],
+        as_identity="user",
+    )
+    if payload.get("ok") is False:
+        return []
+    hits = payload.get("data")
+    if isinstance(hits, dict):
+        hits = hits.get("messages") or hits.get("items") or []
+    if not isinstance(hits, list):
+        return []
+    return [item for item in hits if isinstance(item, dict)]
+
+
+def _person_open_id(name: str, chats: list[dict[str, Any]]) -> str:
+    for chat in chats[:4]:
+        cid = str(chat.get("chat_id") or "")
+        if not cid:
+            continue
+        payload = run_lark(
+            ["im", "+chat-members-list", "--chat-id", cid, "--page-size", "50"],
+            as_identity="user",
+        )
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        users = data.get("users") if isinstance(data.get("users"), list) else []
+        for user in users:
+            if not isinstance(user, dict):
+                continue
+            if name not in str(user.get("name") or ""):
+                continue
+            oid = str(user.get("member_id") or user.get("open_id") or "")
+            if oid.startswith("ou_"):
+                return oid
+    return ""
+
+
+def _sender_messages(open_id: str) -> list[dict[str, Any]]:
+    if not open_id:
+        return []
+    payload = run_lark(
+        [
+            "im",
+            "+messages-search",
+            "--sender",
+            open_id,
+            "--page-size",
+            "10",
+            "--no-reactions",
+        ],
+        as_identity="user",
+    )
+    if payload.get("ok") is False:
+        return []
+    hits = payload.get("data")
+    if isinstance(hits, dict):
+        hits = hits.get("messages") or hits.get("items") or []
+    if not isinstance(hits, list):
+        return []
+    return [item for item in hits if isinstance(item, dict)]
+
+
+def _format_msg_line(msg: dict[str, Any], name: str) -> str:
+    who = _message_who(msg) or name
+    body = _message_body(msg)
+    if not body:
+        return ""
+    if body.startswith("![Image]"):
+        body = "（图片）"
+    when = str(msg.get("create_time") or "")
+    if len(when) >= 16:
+        when = when[5:16].replace("T", " ")
+    clip = body[:160] + ("…" if len(body) > 160 else "")
+    if when:
+        return f"- {when} {who}：{clip}"
+    return f"- {who}：{clip}"
+
+
+def person_text(query: str) -> str:
+    """Look up someone's recent IM replies. Never searches docs."""
+    name = (query or "").strip()
+    if not name:
+        return "说一下是谁，我去翻最近怎么回的。"
+    lines = [f"【{name}最近怎么说】"]
+    inbox_hits = [
+        item
+        for item in recent_items(days=14)
+        if name in str(item.get("sender_name") or "")
+        or name in str(item.get("text") or "")
+        or name in str(item.get("chat_name") or "")
+    ]
+    if inbox_hits:
+        lines.append("收件箱里：")
+        for item in inbox_hits[:5]:
+            who = str(item.get("sender_name") or name).strip()
+            where = str(item.get("chat_name") or "群").strip()
+            text = str(item.get("text") or "").replace("\n", " ").strip()
+            if len(text) > 120:
+                text = text[:120] + "…"
+            lines.append(f"- {who}（{where}）：{text}" if text else f"- {who}（{where}）")
+    payload = run_lark(
+        ["im", "+chat-search", "--query", name, "--page-size", "20"],
+        as_identity="user",
+    )
+    chats = [chat for chat in _items(payload, "chats", "items") if isinstance(chat, dict)]
+    if payload.get("ok") is False and not chats:
+        err = format_lark_error(payload)
+        if len(lines) == 1:
+            return err
+        lines.append(err)
+        return "\n".join(lines)
+    oid = _person_open_id(name, chats)
+    shown = [_format_msg_line(msg, name) for msg in _sender_messages(oid)]
+    shown = [line for line in shown if line][:8]
+    if shown:
+        lines.append("最近发的：")
+        lines.extend(shown)
+        return "\n".join(lines)
+    found_msg = False
+    for chat in chats[:3]:
+        cid = str(chat.get("chat_id") or "")
+        cname = str(chat.get("name") or "会话").strip()
+        mode = str(chat.get("chat_mode") or chat.get("chat_type") or "").lower()
+        local: list[str] = []
+        for msg in _recent_messages(cid):
+            who = _message_who(msg)
+            sid = ""
+            sender = msg.get("sender")
+            if isinstance(sender, dict):
+                sid = str(sender.get("id") or "")
+            if not (
+                "p2p" in mode
+                or name in who
+                or name in cname
+                or (oid and sid == oid)
+            ):
+                continue
+            line = _format_msg_line(msg, name)
+            if line:
+                local.append(line)
+            if len(local) >= 8:
+                break
+        if not local:
+            continue
+        found_msg = True
+        lines.append(f"{cname}：")
+        lines.extend(local)
+    if found_msg or inbox_hits:
+        return "\n".join(lines)
+    if chats:
+        names = "、".join(
+            str(chat.get("name") or "").strip()
+            for chat in chats[:5]
+            if chat.get("name")
+        )
+        return f"找到和「{name}」相关的会话（{names}），但最近没有可读的文字回复。"
+    return (
+        f"没找到「{name}」的会话或最近回复。"
+        "我只能看你身份下搜得到的群/单聊；机器人不在的群看不见。"
+        "也可以说「谁找我」。"
+    )
+
+
 def inbox_text() -> str:
     return format_inbox_digest(recent_items(days=7))
 
@@ -450,6 +815,82 @@ def send_card(chat_id: str, card: dict[str, Any], *, as_identity: str = "bot") -
     return format_lark_error(payload)
 
 
+def _task_lines(payload: dict[str, Any]) -> list[str]:
+    if payload.get("ok") is False:
+        return []
+    lines: list[str] = []
+    for item in _items(payload, "items", "tasks")[:20]:
+        if not isinstance(item, dict):
+            continue
+        summary = str(item.get("summary") or item.get("title") or "(无标题)")
+        due = item.get("due_at") or item.get("due") or ""
+        due_s = str(due)[:10] if due else ""
+        lines.append(f"{summary}（{due_s}）" if due_s else summary)
+    return lines
+
+
+def send_style_card(intent: Intent, chat_id: str) -> bool:
+    """P2P 简报/今天/明天走 JSON 2.0 卡；失败则交给 dispatch 发文字。"""
+    if not chat_id or intent.action not in {"brief", "today", "tomorrow"}:
+        return False
+    card: dict[str, Any] | None = None
+    if intent.action == "brief":
+        from .brief import collect_brief
+        from .brief_card import brief_card
+
+        card = brief_card(collect_brief())
+    else:
+        from .brief import agenda_entries
+        from .brief_card import day_work_card
+        from .followup import followups_for_command
+
+        offset = 1 if intent.action == "tomorrow" else 0
+        start, end = _day_bounds(offset)
+        entries = agenda_entries(_agenda_range(start, end))
+        tasks = run_lark(
+            ["task", "+get-my-tasks", "--complete=false", "--page-limit", "20"],
+            as_identity="user",
+        )
+        card = day_work_card(
+            kind=intent.action,
+            day=start.date(),
+            entries=entries,
+            followups=followups_for_command(),
+            task_lines=_task_lines(tasks),
+        )
+    result = send_card(chat_id, card)
+    if result != "已发送。":
+        return False
+    save_turn(
+        chat_id,
+        kind="action",
+        query=intent.action,
+        action=intent.action,
+        pairs=[],
+    )
+    return True
+
+
+def add_reaction(message_id: str, emoji: str = "OnIt") -> str:
+    if not message_id:
+        return "skip"
+    payload = run_lark(
+        [
+            "im",
+            "reactions",
+            "create",
+            "--message-id",
+            message_id,
+            "--data",
+            json.dumps({"reaction_type": {"emoji_type": emoji}}, ensure_ascii=False),
+        ],
+        as_identity="bot",
+    )
+    if payload.get("ok"):
+        return "ok"
+    return format_lark_error(payload)
+
+
 def _probe_ok(payload: dict[str, Any]) -> tuple[bool, str]:
     data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
     decision = data.get("decision") if isinstance(data, dict) else {}
@@ -466,6 +907,8 @@ def _probe_ok(payload: dict[str, Any]) -> tuple[bool, str]:
 
 
 def _facts_for(intent: Intent) -> str:
+    if intent.action == "aily":
+        return alignment_text()
     if intent.action == "help":
         return HELP_TEXT
     if intent.action == "today":
@@ -478,6 +921,8 @@ def _facts_for(intent: Intent) -> str:
         return weekly_text(focus=intent.query if intent.query == "next" else "")
     if intent.action == "write_weekly":
         return write_weekly_text()
+    if intent.action == "write_doc":
+        return write_doc_text(intent.query)
     if intent.action == "tasks":
         return tasks_text()
     if intent.action == "minutes":
@@ -490,8 +935,20 @@ def _facts_for(intent: Intent) -> str:
         return read_text(intent.query)
     if intent.action == "chats":
         return chats_text(intent.query)
+    if intent.action == "person":
+        return person_text(intent.query)
     if intent.action == "inbox":
         return inbox_text()
+    if intent.action == "digest":
+        from .followup import digest_text
+
+        return digest_text()
+    if intent.action == "weekly_tasks":
+        from .bitable import weekly_tasks_text
+
+        return weekly_tasks_text()
+    if intent.action == "plan":
+        return plan_text(intent.query, today_text())
     if intent.action == "send":
         return send_text(intent.chat_id, intent.query)
     query = (intent.query or "").strip()
@@ -507,13 +964,18 @@ def partner_reply(user_text: str, facts: str, intent: Intent | None = None) -> s
     for _ in range(4):
         spoken = rewrite_partner(asked, gathered)
         fetch = parse_fetch(spoken)
-        if not fetch:
-            return spoken or gathered
-        name, query = fetch
-        extra = _facts_for(Intent(action=name, query=query))
-        gathered = f"{gathered}\n\n【补充·{name}】\n{extra}"
+        if fetch:
+            name, query = fetch
+            extra = _facts_for(Intent(action=name, query=query))
+            gathered = f"{gathered}\n\n【补充·{name}】\n{extra}"
+            continue
+        if spoken and _is_usable_reply(spoken, limit=2500):
+            return spoken
+        return gathered
     spoken = rewrite_human(asked, gathered)
-    return spoken or gathered
+    if spoken and _is_usable_reply(spoken, limit=2500):
+        return spoken
+    return gathered
 
 
 def _continue_turn(prev: dict[str, Any], raw: str) -> str:
@@ -544,18 +1006,40 @@ def _continue_turn(prev: dict[str, Any], raw: str) -> str:
     return "上一句我没留住。再说一次：今天、待办，还是某份文档？"
 
 
+def _unknown_nudge(prev: dict[str, Any] | None) -> str:
+    extra = ""
+    if prev and prev.get("query"):
+        extra = f"你上一句在问「{prev.get('query')}」。"
+    return (extra + "直接说：今天 / 待办 / 删掉某条待办 / 搜 关键词。").strip()
+
+
 def dispatch(
     intent: Intent,
     *,
     user_text: str = "",
     channel: str = "p2p",
     chat_id: str = "",
+    force_facts: bool = False,
 ) -> str:
     if intent.action == "resolve":
         ensure_pending_snapshot()
         return resolve_text(intent.query or user_text)
     asked = user_text or (intent.query or "").strip() or intent.action
     prev = load_turn(chat_id) if chat_id else None
+    if intent.action == "task_done":
+        reply = complete_task_text(
+            intent.query,
+            session_items=list((prev or {}).get("items") or []),
+        )
+        if chat_id:
+            save_turn(
+                chat_id,
+                kind="action",
+                query=asked,
+                action="task_done",
+                items=list((prev or {}).get("items") or []),
+            )
+        return reply
     if prev and looks_like_followup(asked):
         steal_weekly = intent.action == "weekly" and asked.strip() in {
             "继续",
@@ -574,22 +1058,36 @@ def dispatch(
                 query=str(prev.get("query") or asked),
                 action=str(prev.get("action") or intent.action),
                 pairs=prev.get("pairs") or [],
+                items=list(prev.get("items") or []),
             )
             return reply
     if intent.action == "unknown" and looks_like_followup(asked) and not prev:
         return "上一轮我没接上。直接说「今天」「待办」，或「搜 关键词」。"
     pairs: list[tuple[str, str]] = []
+    items: list[dict[str, str]] = []
+    if intent.action == "unknown" and channel == "p2p" and not force_facts:
+        refined = classify_intent(asked)
+        if refined is not None and refined.action not in {"unknown", ""}:
+            intent = refined
     if intent.action == "unknown":
+        if not looks_like_bare_search(asked):
+            return _unknown_nudge(prev)
         facts, pairs = analyze_result((intent.query or asked).strip())
         kind = "clarify" if looks_like_clarify(facts) else "action"
         if chat_id:
             save_turn(chat_id, kind=kind, query=asked, action="unknown", pairs=pairs)
         if looks_like_clarify(facts):
             return facts
+    elif intent.action == "tasks":
+        facts, items = tasks_bundle()
+        if chat_id:
+            save_turn(chat_id, kind="action", query=asked, action="tasks", items=items)
     else:
         facts = _facts_for(intent)
         if chat_id:
             save_turn(chat_id, kind="action", query=asked, action=intent.action, pairs=[])
+    if force_facts:
+        return facts
     if should_partner(channel, intent.action):
         return partner_reply(asked, facts, intent) or facts
     if not should_compose(intent.action):

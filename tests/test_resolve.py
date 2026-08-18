@@ -28,6 +28,22 @@ class ResolveIntentTests(unittest.TestCase):
         self.assertEqual(intent.action, "resolve")
         self.assertIn("APP沟通群", intent.query)
 
+    def test_quoted_question_does_not_hide_resolve_reply(self) -> None:
+        text = (
+            "刚记下周学彬派你的活：\n"
+            "我咋记得之前不是一起做的APP吗\n\n"
+            "这个我已经解决了"
+        )
+        intent = parse_intent(text)
+        self.assertEqual(intent.action, "resolve")
+        self.assertEqual(intent.query, text)
+
+    def test_solved_phrase_is_resolve_not_person(self) -> None:
+        for text in ("这个我已经解决了", "这块我解决了", "周学彬那条已解决"):
+            intent = parse_intent(text)
+            self.assertEqual(intent.action, "resolve", text)
+            self.assertNotEqual(intent.action, "person", text)
+
     def test_which_group_stays_chats(self) -> None:
         self.assertEqual(
             parse_intent("软件发版 测试 孙萌测试是那个群").action, "chats"
@@ -46,8 +62,10 @@ class LedgerTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         os.environ["FEISHU_PARTNER_RESOLVED"] = str(Path(self.tmp.name) / "resolved.jsonl")
         os.environ["FEISHU_PARTNER_PENDING"] = str(Path(self.tmp.name) / "pending.json")
+        os.environ["FEISHU_PARTNER_FOLLOWUPS"] = str(Path(self.tmp.name) / "followups.json")
         self.addCleanup(os.environ.pop, "FEISHU_PARTNER_RESOLVED", None)
         self.addCleanup(os.environ.pop, "FEISHU_PARTNER_PENDING", None)
+        self.addCleanup(os.environ.pop, "FEISHU_PARTNER_FOLLOWUPS", None)
 
     def test_mark_then_skip(self) -> None:
         key = pending_key(message_id="om_app1")
@@ -134,6 +152,118 @@ class LedgerTests(unittest.TestCase):
         reply = resolve_text("回 APP沟通群 那条（进行中）已经处理")
         self.assertIn("已记下", reply)
         self.assertTrue(is_resolved("om:om_live"))
+
+    def test_solved_closes_colleague_followup_not_person_dump(self) -> None:
+        from partner.followup import load_items, save_items
+
+        os.environ["FEISHU_PARTNER_FOLLOWUPS"] = str(Path(self.tmp.name) / "followups.json")
+        self.addCleanup(os.environ.pop, "FEISHU_PARTNER_FOLLOWUPS", None)
+        save_items(
+            [
+                {
+                    "id": "fu:zhou",
+                    "kind": "direct",
+                    "asker_name": "周学彬",
+                    "chat_name": "周学彬",
+                    "text": "我咋记得之前不是一起做的APP吗",
+                    "status": "open",
+                }
+            ]
+        )
+        reply = resolve_text("这个我已经解决了")
+        self.assertIn("周学彬", reply)
+        self.assertIn("不再催", reply)
+        self.assertNotIn("最近怎么说", reply)
+        self.assertEqual(load_items()[0]["status"], "done")
+
+    def test_quoted_reply_closes_exact_followup_for_same_person(self) -> None:
+        from partner.followup import load_items, save_items
+
+        save_items(
+            [
+                {
+                    "id": "fu:zhou-a6",
+                    "kind": "direct",
+                    "asker_name": "周学彬",
+                    "text": "A6跟A8是区分开的吗",
+                    "status": "open",
+                },
+                {
+                    "id": "fu:zhou-app",
+                    "kind": "direct",
+                    "asker_name": "周学彬",
+                    "text": "我咋记得之前不是一起做的APP吗",
+                    "status": "open",
+                },
+            ]
+        )
+        reply = resolve_text(
+            "刚记下周学彬派你的活：\n"
+            "我咋记得之前不是一起做的APP吗\n\n"
+            "这个我已经解决了"
+        )
+        self.assertIn("周学彬", reply)
+        self.assertIn("已读回引", reply)
+        self.assertIn("我咋记得之前不是一起做的APP吗", reply)
+        self.assertIn("不再催", reply)
+        statuses = {item["id"]: item["status"] for item in load_items()}
+        self.assertEqual(statuses["fu:zhou-a6"], "open")
+        self.assertEqual(statuses["fu:zhou-app"], "done")
+
+    def test_stale_quoted_reply_does_not_close_another_followup(self) -> None:
+        from partner.followup import load_items, save_items
+
+        save_items(
+            [
+                {
+                    "id": "fu:zhou-a6",
+                    "kind": "direct",
+                    "asker_name": "周学彬",
+                    "text": "A6跟A8是区分开的吗",
+                    "status": "open",
+                }
+            ]
+        )
+        reply = resolve_text(
+            "刚记下周学彬派你的活：\n"
+            "我咋记得之前不是一起做的APP吗\n\n"
+            "这个已解决"
+        )
+        self.assertIn("已经不在待处理", reply)
+        self.assertIn("没有动其他条", reply)
+        self.assertEqual(load_items()[0]["status"], "open")
+
+    def test_weak_hint_two_followups_asks_which(self) -> None:
+        from partner.followup import load_items, save_items
+
+        os.environ["FEISHU_PARTNER_FOLLOWUPS"] = str(Path(self.tmp.name) / "followups.json")
+        self.addCleanup(os.environ.pop, "FEISHU_PARTNER_FOLLOWUPS", None)
+        save_items(
+            [
+                {
+                    "id": "fu:qiu",
+                    "kind": "direct",
+                    "asker_name": "邱俊立",
+                    "text": "技术方案",
+                    "status": "open",
+                },
+                {
+                    "id": "fu:zhou",
+                    "kind": "direct",
+                    "asker_name": "周学彬",
+                    "text": "我咋记得之前不是一起做的APP吗",
+                    "status": "open",
+                },
+            ]
+        )
+        reply = resolve_text("这个我已经解决了")
+        self.assertIn("对上好几条", reply)
+        self.assertIn("邱俊立", reply)
+        self.assertIn("周学彬", reply)
+        self.assertNotIn("最近怎么说", reply)
+        statuses = {item["id"]: item["status"] for item in load_items()}
+        self.assertEqual(statuses["fu:qiu"], "open")
+        self.assertEqual(statuses["fu:zhou"], "open")
 
 
 class CardTests(unittest.TestCase):

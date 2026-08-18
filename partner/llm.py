@@ -33,11 +33,35 @@ _LEAK_MARKERS = (
     "【材料】",
     "用户说：",
 )
+_TRANSPORT_MARKERS = (
+    "[ssl:",
+    "unexpected_eof_while_reading",
+    "_ssl.c",
+    "sslerror",
+    "eof occurred in violation of protocol",
+    "connection reset by peer",
+    "remote end closed connection",
+)
 
 _COMPOSE_ACTIONS = frozenset(
-    {"weekly", "today", "tomorrow", "tasks", "unknown", "minutes", "approval"}
+    {"weekly", "tasks", "unknown", "minutes", "approval"}
 )
-_NO_PARTNER = frozenset({"send", "write_weekly", "resolve"})
+_NO_PARTNER = frozenset(
+    {
+        "send",
+        "write_weekly",
+        "write_doc",
+        "resolve",
+        "task_done",
+        "digest",
+        "weekly_tasks",
+        "today",
+        "tomorrow",
+        "brief",
+        "plan",
+        "aily",
+    }
+)
 _FETCH_SIMPLE = frozenset(
     {
         "today",
@@ -52,7 +76,7 @@ _FETCH_SIMPLE = frozenset(
         "help",
     }
 )
-_FETCH_QUERY = frozenset({"search", "read"})
+_FETCH_QUERY = frozenset({"search", "read", "person"})
 _FETCH_RE = re.compile(r"^FETCH:\s*(\S+)(?:\s+(.+))?$", re.I)
 
 
@@ -100,9 +124,45 @@ def parse_fetch(text: str) -> tuple[str, str] | None:
     return None
 
 
+_CLASSIFY_PROMPT = (
+    "把用户这句话分类成一个 JSON 对象，不要解释。\n"
+    "action 只能是: today, tomorrow, tasks, brief, weekly, inbox, minutes, "
+    "approval, chats, search, read, person, plan, write_doc, resolve, help\n"
+    "已解决/搞定/已经处理 → resolve，不要用 person。\n"
+    "问某人回复/怎么说/回了没/那边怎么样 → person，query 是人名，不要用 search。\n"
+    "要规划/拆解/制定执行步骤/任务模式 → plan，query 是要规划的目标。\n"
+    "写文档/给我写个这个/按提纲写 → write_doc，query 是标题或链接。\n"
+    "明天任务/明天的任务/明日任务 → tomorrow，不要用 tasks。\n"
+    "今天的任务/今日任务 → today，不要用 tasks。tasks 只给「待办」「我的任务」。\n"
+    "只有明确要搜文档才用 search。找群用 chats。\n"
+    '只输出一行 JSON，例如 {"action":"person","query":"张三"}\n\n'
+    "用户："
+)
+
+
+def classify_intent(text: str):
+    """P2P unknown → allowlisted action. Empty/None means keep unknown."""
+    if os.environ.get("FEISHU_PARTNER_NO_LLM") == "1":
+        return None
+    if not hermes_available():
+        return None
+    asked = (text or "").strip()
+    if not asked:
+        return None
+    from .intents import parse_classified
+
+    raw = _invoke_hermes(_CLASSIFY_PROMPT + asked, timeout=25, mode="rewrite")
+    return parse_classified(raw)
+
+
 def _looks_like_leak(text: str) -> bool:
     blob = text or ""
     return any(marker in blob for marker in _LEAK_MARKERS)
+
+
+def _looks_like_transport_error(text: str) -> bool:
+    blob = (text or "").lower()
+    return any(marker in blob for marker in _TRANSPORT_MARKERS)
 
 
 def _is_usable_reply(text: str, *, limit: int = 1200) -> bool:
@@ -111,6 +171,8 @@ def _is_usable_reply(text: str, *, limit: int = 1200) -> bool:
     if parse_fetch(text):
         return False
     if _looks_like_leak(text):
+        return False
+    if _looks_like_transport_error(text):
         return False
     if any(marker in text for marker in _THINK_MARKERS):
         return False
@@ -158,6 +220,8 @@ def _extract_reply(raw: str) -> str:
             spoken.append(head.strip('「」"“”'))
         text = "\n".join(spoken).strip()
     if _looks_like_leak(text):
+        return ""
+    if _looks_like_transport_error(text):
         return ""
     return text
 
@@ -228,12 +292,14 @@ def _item_covered(item: str, sources: list[str]) -> bool:
 def _brief_prompt(facts: str) -> str:
     return (
         "把下面这份飞书日更简报润色成更好扫的条目，保持简报体，不要改成第一人称闲聊。\n"
-        "必须保留已有标题：【昨天小结】【今天规划】【本周值得关注】待处理（原文有的都要留）。\n"
-        "已结束/进行中/未完成 这些状态不要删，也不要改成已办除非材料写了已同步/已处理。\n"
+        "必须保留已有标题：一、昨天小结 / 二、今天规划 / 推进事项 / 待处理 / 待回复 / "
+        "长期待办 / 今日日程 / 优先处理 TOP 5 / 【本周值得关注】（原文有的都要留）。\n"
+        "TOP 5 的「优先级 | 事项 | 原因」三列和 P0/P1/P2/P3 不要删；原因只能改措辞，不许另编。\n"
+        "已结束/进行中/未完成/已接受/待回复 这些状态不要删，也不要改成已办除非材料写了已同步/已处理。\n"
         "只根据材料改措辞、合并重复、标出为什么要先做；不许编造材料里没有的会议、待办、人名、进度。\n"
         "不要新增条目，不要凑满 5 条，空源不要补。\n"
         "不要解释你是 AI，不要输出思考过程，不要调用任何工具或命令。\n"
-        "直接输出润色后的完整简报，第一行必须是「吴梦晨 ·」。\n\n"
+        "直接输出润色后的完整简报，第一行必须是「📋 每日工作简报 ·」。\n\n"
         f"【材料】\n{facts.strip()[:3500]}"
     )
 
@@ -241,13 +307,24 @@ def _brief_prompt(facts: str) -> str:
 def accept_polished_brief(original: str, polished: str) -> bool:
     if not _is_usable_reply(polished):
         return False
-    if "吴梦晨" not in polished or "简报" not in polished:
+    titled = "每日工作简报" in polished or ("吴梦晨" in polished and "简报" in polished)
+    if not titled:
         return False
     if "待回复" in polished and "待回复" not in original:
         return False
     if "待处理" in polished and "待处理" not in original:
         return False
-    for heading in ("【昨天小结】", "【今天规划】", "【本周值得关注】", "待回复", "待处理", "长期待办"):
+    for heading in (
+        "一、昨天小结",
+        "二、今天规划",
+        "【昨天小结】",
+        "【今天规划】",
+        "【本周值得关注】",
+        "待回复",
+        "待处理",
+        "长期待办",
+        "优先处理 TOP 5",
+    ):
         if heading in original and heading not in polished:
             return False
     sources = _item_lines(original)
@@ -266,17 +343,28 @@ def _invoke_hermes(prompt: str, *, timeout: int, mode: str = "rewrite") -> str:
     argv = build_hermes_argv(prompt, binary, mode=mode)
     if "--yolo" in argv:
         return ""
-    try:
-        proc = subprocess.run(
-            argv,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=str(Path.home()),
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return ""
-    return _extract_reply(proc.stdout or "")
+    last = ""
+    for attempt in range(2):
+        try:
+            proc = subprocess.run(
+                argv,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                cwd=str(Path.home()),
+            )
+        except subprocess.TimeoutExpired:
+            return ""
+        except OSError:
+            return ""
+        text = _extract_reply(proc.stdout or "")
+        if _looks_like_transport_error(text) or _looks_like_transport_error(
+            proc.stderr or ""
+        ):
+            last = ""
+            continue
+        return text
+    return last
 
 
 def _run_hermes(prompt: str, *, timeout: int) -> str:
@@ -290,6 +378,7 @@ def _partner_prompt(user_text: str, facts: str, *, with_tools: bool) -> str:
     if with_tools:
         extra = (
             "问哪个群、交给测试的群：调用 feishu_chats（可带 query），不要搜文档。\n"
+            "问某人回复/怎么说/回了没：调用 feishu_person，query 用人名，不要搜文档。\n"
             "材料不够就调用 feishu_* 工具补齐。不要用终端、不要改文件、不要发消息。\n"
             "禁止把思考、指令或 FETCH 行发给用户；只输出给用户看的正文。\n"
         )
@@ -299,7 +388,8 @@ def _partner_prompt(user_text: str, facts: str, *, with_tools: bool) -> str:
             "FETCH: today | tomorrow | tasks | weekly | brief | inbox | minutes | approval | chats | help\n"
             "或 FETCH: search <关键词>\n"
             "或 FETCH: read <飞书文档链接>\n"
-            "禁止 FETCH send / write_weekly / 任意命令。\n"
+            "或 FETCH: person <人名>\n"
+            "禁止 FETCH send / write_weekly / write_doc / 任意命令。\n"
         )
     return (
         "你是吴梦晨在飞书里的工作伙伴。根据【材料】用第一人称（我）写回复，像同事随口说，不要客服腔。\n"
@@ -338,6 +428,37 @@ def rewrite_partner(user_text: str, facts: str, *, timeout: int = 90) -> str:
     return text
 
 
+def _plan_prompt(goal: str, facts: str) -> str:
+    return (
+        "你是吴梦晨在飞书里的工作伙伴。把用户目标拆成可执行计划。\n"
+        "只根据【工作上下文】和用户目标，不许编造材料里没有的会议、人名、进度。\n"
+        "不要解释你是 AI，不要输出思考过程，不要调用任何工具或命令。\n"
+        "输出必须包含这些标题：任务规划、【当前判断】、【执行步骤】、【可直接用的飞书动作】、【需要确认】。\n"
+        "执行步骤用 1. 2. 3. 编号，每步说明产出或验收方式。\n"
+        "飞书动作只能引用这些命令：feishu today, feishu tasks, feishu search, feishu read, "
+        "feishu ask 会议纪要, feishu ask 审批, feishu digest, feishu followup。\n\n"
+        f"用户目标：{goal.strip()}\n\n"
+        f"【工作上下文】\n{facts.strip()[:3500]}"
+    )
+
+
+def rewrite_plan(goal: str, facts: str, *, timeout: int = 60) -> str:
+    """Return a structured task plan, or empty string to keep deterministic fallback."""
+    if os.environ.get("FEISHU_PARTNER_NO_LLM") == "1":
+        return ""
+    if not (goal or "").strip():
+        return ""
+    text = _invoke_hermes(_plan_prompt(goal, facts), timeout=timeout)
+    if not text or "Error:" in text[:80] or "FETCH:" in text:
+        return ""
+    if not _is_usable_reply(text, limit=3000):
+        return ""
+    required = ("任务规划", "【执行步骤】", "【需要确认】")
+    if not all(marker in text for marker in required):
+        return ""
+    return text.strip()
+
+
 _BRIEF_STOP = (
     "分析：",
     "等等",
@@ -357,7 +478,30 @@ def _looks_like_brief_line(line: str) -> bool:
     head = line.strip()
     if not head:
         return True
-    if head.startswith(("吴梦晨 ·", "【", "- ", "上一个工作日", "完成", "待回复")):
+    if head.startswith(
+        (
+            "📋",
+            "吴梦晨 ·",
+            "【",
+            "- ",
+            "一、",
+            "二、",
+            "推进",
+            "⚠️",
+            "待处理",
+            "待回复",
+            "长期待办",
+            "今日日程",
+            "优先处理",
+            "优先级",
+            "🔴",
+            "🟠",
+            "🟡",
+            "🟢",
+            "上一个工作日",
+            "完成",
+        )
+    ):
         return True
     return bool(head[0].isdigit() and len(head) > 2 and head[1] in ".)、")
 
@@ -365,7 +509,7 @@ def _looks_like_brief_line(line: str) -> bool:
 def _trim_brief_block(block: str) -> str:
     lines: list[str] = []
     seen_heading = False
-    for line in block.splitlines()[:28]:
+    for line in block.splitlines()[:48]:
         head = line.strip()
         if any(marker in head[:24] for marker in _THINK_MARKERS):
             break
@@ -373,33 +517,45 @@ def _trim_brief_block(block: str) -> str:
             break
         if seen_heading and head and not _looks_like_brief_line(line):
             break
-        if head.startswith("【"):
+        if head.startswith(("【", "一、", "二、")):
             seen_heading = True
         lines.append(line)
     return "\n".join(lines).strip()
 
 
+def _brief_start(text: str, *, last: bool) -> int:
+    blob = text or ""
+    found = [
+        blob.find(mark) if not last else blob.rfind(mark)
+        for mark in ("📋 每日工作简报", "每日工作简报 ·", "吴梦晨 ·")
+    ]
+    hits = [index for index in found if index >= 0]
+    if not hits:
+        return -1
+    return max(hits) if last else min(hits)
+
+
 def isolate_brief(text: str) -> str:
-    """Hermes often leaks a long think; keep the last short 吴梦晨 · block."""
-    marker = "吴梦晨 ·"
-    index = (text or "").rfind(marker)
+    """Hermes often leaks a long think; keep the last short brief block."""
+    index = _brief_start(text, last=True)
     if index < 0:
         return (text or "").strip()
     return _trim_brief_block(text[index:])
 
 
 def _brief_candidates(text: str) -> list[str]:
-    marker = "吴梦晨 ·"
     found: list[str] = []
-    start = 0
-    while True:
-        index = (text or "").find(marker, start)
-        if index < 0:
-            break
-        chunk = _trim_brief_block(text[index:])
-        if chunk and chunk not in found:
-            found.append(chunk)
-        start = index + len(marker)
+    blob = text or ""
+    for mark in ("📋 每日工作简报", "每日工作简报 ·", "吴梦晨 ·"):
+        start = 0
+        while True:
+            index = blob.find(mark, start)
+            if index < 0:
+                break
+            chunk = _trim_brief_block(blob[index:])
+            if chunk and chunk not in found:
+                found.append(chunk)
+            start = index + len(mark)
     return found
 
 

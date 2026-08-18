@@ -11,8 +11,8 @@ from .intents import Intent
 PROTOCOL = "2024-11-05"
 
 _TOOLS = (
-    ("feishu_today", "今天的日程"),
-    ("feishu_tomorrow", "明天的日程"),
+    ("feishu_today", "今天的日程、待办和要跟的活"),
+    ("feishu_tomorrow", "明天的日程、待办和要跟的活"),
     ("feishu_tasks", "未完成待办"),
     ("feishu_weekly", "本周周报/计划；下周传 focus=next"),
     ("feishu_brief", "昨天小结 + 今天规划"),
@@ -20,6 +20,7 @@ _TOOLS = (
     ("feishu_minutes", "最近会议纪要"),
     ("feishu_approval", "待办审批"),
     ("feishu_chats", "会话/群列表；找某个群时传 query"),
+    ("feishu_person", "某人最近怎么回的；query 用人名，不要搜文档"),
     ("feishu_help", "能力说明"),
     ("feishu_search", "搜飞书文档"),
     ("feishu_read", "读飞书文档（URL 或 token）"),
@@ -35,6 +36,7 @@ _ACTION = {
     "feishu_minutes": "minutes",
     "feishu_approval": "approval",
     "feishu_chats": "chats",
+    "feishu_person": "person",
     "feishu_help": "help",
     "feishu_search": "search",
     "feishu_read": "read",
@@ -48,6 +50,9 @@ def _tool_schema(name: str, description: str) -> dict[str, Any]:
         props["focus"] = {"type": "string", "description": "next 表示下周"}
     elif name == "feishu_chats":
         props["query"] = {"type": "string", "description": "群名关键词，如 孙萌测试"}
+    elif name == "feishu_person":
+        props["query"] = {"type": "string", "description": "人名，如 张三"}
+        required.append("query")
     elif name == "feishu_search":
         props["query"] = {"type": "string", "description": "搜索关键词"}
         required.append("query")
@@ -77,6 +82,10 @@ def _call_tool(name: str, arguments: dict[str, Any] | None) -> str:
         query = "next"
     elif action == "chats":
         query = str(args.get("query") or "").strip()
+    elif action == "person":
+        query = str(args.get("query") or "").strip()
+        if not query:
+            return "person 需要人名"
     elif action == "search":
         query = str(args.get("query") or "").strip()
         if not query:

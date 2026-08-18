@@ -7,16 +7,31 @@ import re
 import select
 import subprocess
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from .actions import dispatch, send_text
+from .ack import ACK_EMOJI, ack_line, should_ack_text
+from .actions import add_reaction, dispatch, send_style_card, send_text
 from .brief import already_pushed, push_brief
-from .events import extract_card_action, extract_inbound_message, should_reply
+from .events import InboundMessage, extract_card_action, extract_inbound_message, should_reply
 from .ids import BOT_OPEN_ID, P2P_CHAT_ID, USER_OPEN_ID
+from .followup import (
+    apply_action,
+    format_assign_push,
+    ingest,
+    in_chat_watch_window,
+    load_chat_sync_since,
+    mark_chat_synced,
+    push_digest,
+    should_scan_bitable,
+    should_sync_user_chats,
+    sync_user_chats,
+)
 from .inbox import append_item
 from .intents import parse_intent, strip_wake_prefix
 from .lark import find_lark_cli
+from .llm import _looks_like_leak, _looks_like_transport_error
 from .resolved import confirm_card
 from .watch import consider, format_watch_push
 
@@ -24,6 +39,9 @@ CN_TZ = timezone(timedelta(hours=8))
 
 LOG_DIR = Path.home() / ".feishu-partner"
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+_FU_ACTS = frozenset({"fu_done", "fu_snooze", "fu_ignore"})
+_last_bitable_scan = 0.0
+_last_chat_sync = 0.0
 
 
 def _log(line: str) -> None:
@@ -31,6 +49,113 @@ def _log(line: str) -> None:
     with (LOG_DIR / "serve.log").open("a", encoding="utf-8") as fh:
         fh.write(line.rstrip() + "\n")
     print(line, file=sys.stderr, flush=True)
+
+
+def send_ok(result: str) -> bool:
+    return (result or "").strip() == "已发送。"
+
+
+def looks_like_bad_reply(text: str) -> bool:
+    blob = (text or "").strip()
+    if not blob:
+        return True
+    if _looks_like_transport_error(blob):
+        return True
+    if _looks_like_leak(blob):
+        return True
+    return False
+
+
+def looks_like_transient_fail(result: str) -> bool:
+    if send_ok(result):
+        return False
+    blob = (result or "").lower()
+    if "missing_scope" in blob or "缺权限" in blob:
+        return False
+    if _looks_like_transport_error(result):
+        return True
+    return any(
+        token in blob
+        for token in (
+            "timeout",
+            "timed out",
+            "econnreset",
+            "connection reset",
+            "429",
+            "502",
+            "503",
+            "504",
+        )
+    )
+
+
+def send_checked(
+    chat_id: str,
+    text: str,
+    *,
+    as_identity: str = "bot",
+    attempts: int = 2,
+) -> str:
+    result = "skip"
+    for attempt in range(attempts):
+        result = send_text(chat_id, text, as_identity=as_identity)
+        if send_ok(result):
+            if attempt:
+                _log(f"send-retry ok attempt={attempt + 1}")
+            return result
+        if not looks_like_transient_fail(result):
+            return result
+        _log(f"send-retry attempt={attempt + 1} {result[:160]}")
+    return result
+
+
+def reply_user(msg: InboundMessage) -> None:
+    intent = parse_intent(msg.text)
+    _log(f"intent={intent.action} text={msg.text[:80]!r}")
+    reacted = add_reaction(msg.message_id, ACK_EMOJI)
+    _log("ack-react: " + reacted)
+    if should_ack_text(intent.action):
+        acked = send_checked(msg.chat_id, ack_line(intent.action), as_identity="bot")
+        _log("ack-text: " + acked)
+    channel = "group" if msg.chat_type == "group" else "p2p"
+    asked = strip_wake_prefix(msg.text)
+    if channel == "p2p":
+        try:
+            if send_style_card(intent, msg.chat_id):
+                _log("reply: card")
+                return
+        except Exception as exc:
+            _log("card-fail: " + str(exc)[:160])
+    reply = dispatch(
+        intent,
+        user_text=asked,
+        channel=channel,
+        chat_id=msg.chat_id,
+    )
+    if looks_like_bad_reply(reply):
+        _log("bad-reply, retry facts")
+        reply = dispatch(
+            intent,
+            user_text=asked,
+            channel=channel,
+            chat_id=msg.chat_id,
+            force_facts=True,
+        )
+    if looks_like_bad_reply(reply):
+        reply = "刚才写回复抽风了，你再说一次我重试。"
+    result = send_checked(msg.chat_id, reply, as_identity="bot")
+    if send_ok(result) and looks_like_bad_reply(reply):
+        _log("sent-bad-body, correcting")
+        fixed = dispatch(
+            intent,
+            user_text=asked,
+            channel=channel,
+            chat_id=msg.chat_id,
+            force_facts=True,
+        )
+        if not looks_like_bad_reply(fixed):
+            result = send_checked(msg.chat_id, fixed, as_identity="bot")
+    _log("reply: " + result)
 
 
 def _handle_line(line: str, seen: set[str]) -> None:
@@ -59,11 +184,16 @@ def _handle_line(line: str, seen: set[str]) -> None:
         if act.operator_id and act.operator_id != USER_OPEN_ID:
             _log(f"card skip operator={act.operator_id}")
             return
+        if act.act in _FU_ACTS and act.key:
+            reply = apply_action(act.act, act.key)
+            result = send_checked(act.chat_id or P2P_CHAT_ID, reply, as_identity="bot")
+            _log("followup-card: " + result + " " + reply)
+            return
         if act.act != "done" or not act.key:
             _log("card skip value")
             return
         reply = confirm_card(act.key)
-        result = send_text(act.chat_id or P2P_CHAT_ID, reply, as_identity="bot")
+        result = send_checked(act.chat_id or P2P_CHAT_ID, reply, as_identity="bot")
         _log("card: " + result + " " + reply)
         return
     msg = extract_inbound_message(payload)
@@ -76,18 +206,11 @@ def _handle_line(line: str, seen: set[str]) -> None:
         seen.add(msg.message_id)
         if len(seen) > 500:
             seen.clear()
+    created = ingest(msg, user_open_id=USER_OPEN_ID, bot_open_id=BOT_OPEN_ID)
+    if created:
+        _log(f"followup kind={created.get('kind')} id={created.get('id')}")
     if should_reply(msg, BOT_OPEN_ID):
-        intent = parse_intent(msg.text)
-        _log(f"intent={intent.action} text={msg.text[:80]!r}")
-        channel = "group" if msg.chat_type == "group" else "p2p"
-        reply = dispatch(
-            intent,
-            user_text=strip_wake_prefix(msg.text),
-            channel=channel,
-            chat_id=msg.chat_id,
-        )
-        result = send_text(msg.chat_id, reply, as_identity="bot")
-        _log("reply: " + result)
+        reply_user(msg)
         return
     decision = consider(msg, user_open_id=USER_OPEN_ID, bot_open_id=BOT_OPEN_ID)
     if decision is None:
@@ -101,15 +224,59 @@ def _handle_line(line: str, seen: set[str]) -> None:
         f"text={msg.text[:80]!r}"
     )
     if decision.notify and wrote:
-        result = send_text(P2P_CHAT_ID, format_watch_push(decision.item), as_identity="bot")
+        result = send_checked(P2P_CHAT_ID, format_watch_push(decision.item), as_identity="bot")
         _log("watch-push: " + result)
 
 
 def _maybe_push_brief() -> None:
     now = datetime.now(CN_TZ)
-    if now.hour != 9 or already_pushed(now):
+    if now.hour != 9:
         return
-    _log("09:00 简报：" + push_brief(now=now).split("\n", 1)[0])
+    if not already_pushed(now):
+        _log("09:00 简报：" + push_brief(now=now).split("\n", 1)[0])
+    extra = push_digest(now=now)
+    if extra and extra not in {"今日待跟进已推过。", "周末不推待跟进。"}:
+        _log("09:00 待跟进：" + extra.split("\n", 1)[0])
+
+
+def _maybe_scan_bitable() -> None:
+    global _last_bitable_scan
+    now = time.monotonic()
+    if not should_scan_bitable(_last_bitable_scan, now):
+        return
+    _last_bitable_scan = now
+    from .bitable import load_config, scan_bitable
+
+    if not (load_config().get("scan_tables") or os.environ.get("FEISHU_PARTNER_SCAN_TABLES")):
+        return
+    note = scan_bitable()
+    if note:
+        _log("bitable-scan: " + note.split("\n", 1)[0])
+
+
+def _maybe_sync_user_chats() -> None:
+    global _last_chat_sync
+    now = datetime.now(CN_TZ)
+    if not in_chat_watch_window(now):
+        return
+    now_mono = time.monotonic()
+    if not should_sync_user_chats(_last_chat_sync, now_mono):
+        return
+    _last_chat_sync = now_mono
+    since = load_chat_sync_since(now) - timedelta(seconds=5)
+    try:
+        created = sync_user_chats(start=since, now=now, limit_chats=8, page_size=15)
+        mark_chat_synced(now)
+    except Exception as exc:
+        _log("user-chat-sync fail: " + str(exc)[:160])
+        return
+    for item in created:
+        if str(item.get("kind") or "") not in {"direct", "assign_b", "self_transfer"}:
+            continue
+        result = send_checked(
+            P2P_CHAT_ID, format_assign_push(item), as_identity="bot"
+        )
+        _log("assign-push: " + result + " " + str(item.get("id") or ""))
 
 
 def _spawn_consume(
@@ -150,6 +317,8 @@ def serve(timeout: str | None = None, max_events: int = 0) -> int:
     try:
         while True:
             _maybe_push_brief()
+            _maybe_scan_bitable()
+            _maybe_sync_user_chats()
             live: list[int] = []
             if msg_proc.poll() is None:
                 live.append(msg_fd)

@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from contextlib import redirect_stdout
+from io import StringIO
+import os
 import unittest
 from unittest.mock import patch
 
 from partner.actions import dispatch, partner_reply
+from partner.cli import main
 from partner.intents import Intent
 
 
@@ -43,3 +47,54 @@ class PartnerLoopTests(unittest.TestCase):
                 )
         partner.assert_not_called()
         self.assertEqual(out, "已发送")
+
+
+    def test_ssl_stdout_keeps_facts(self) -> None:
+        ssl_err = (
+            "[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of "
+            "protocol (_ssl.c:1016)"
+        )
+        facts = "【张三最近怎么说】\n- 张三：方案可以，明天提测"
+        with patch("partner.actions.rewrite_partner", return_value=ssl_err):
+            text = partner_reply("张三的回复如何？", facts, Intent(action="person", query="张三"))
+        self.assertIn("方案可以", text)
+        self.assertNotIn("SSL", text)
+        self.assertNotIn("_ssl.c", text)
+
+    def test_plan_dispatch_uses_today_context_without_partner_loop(self) -> None:
+        with patch.dict(os.environ, {"FEISHU_PARTNER_NO_LLM": "1"}):
+            with patch("partner.actions.today_text", return_value="【待办】\n- A6 上线前检查"):
+                with patch("partner.actions.partner_reply") as partner:
+                    out = dispatch(
+                        Intent(action="plan", query="A6 上线"),
+                        user_text="规划 A6 上线",
+                        channel="p2p",
+                        force_facts=True,
+                    )
+        partner.assert_not_called()
+        self.assertIn("任务规划", out)
+        self.assertIn("A6 上线", out)
+
+
+class PartnerCliTests(unittest.TestCase):
+    def test_aily_command_prints_alignment(self) -> None:
+        output = StringIO()
+        with redirect_stdout(output):
+            code = main(["aily"])
+
+        self.assertEqual(code, 0)
+        self.assertIn("飞书 Aily / 豆包工作伙伴功能对齐", output.getvalue())
+
+    def test_plan_command_uses_goal_and_today_context(self) -> None:
+        output = StringIO()
+        with patch.dict(os.environ, {"FEISHU_PARTNER_NO_LLM": "1"}):
+            with patch(
+                "partner.actions.today_text",
+                return_value="【待办】\n- A6 上线前检查",
+            ):
+                with redirect_stdout(output):
+                    code = main(["plan", "A6", "上线"])
+
+        self.assertEqual(code, 0)
+        self.assertIn("任务规划：A6 上线", output.getvalue())
+        self.assertIn("A6 上线前检查", output.getvalue())

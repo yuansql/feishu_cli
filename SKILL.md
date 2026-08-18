@@ -21,6 +21,8 @@ feishu read <文档 URL 或 token>
 feishu chats
 feishu ask <短指令>
 feishu brief          # 昨天小结+今天规划；可 Hermes 润色；--install 装 09:00；--push 推单聊
+feishu plan <目标>    # 结合日程、待办、跟进账拆成可执行计划
+feishu aily           # 查看与豆包工作伙伴的功能对齐矩阵
 ```
 
 入口：仓库 `bin/feishu`。找不到命令时在仓库根：
@@ -54,4 +56,4 @@ lark-cli skills read lark-doc
 
 ## 飞书内机器人
 
-`feishu serve` 消费 `im.message.receive_v1`。@机器人或「工作伙伴」前缀才在群里回答。群里 @部署者本人 或点名指派会写入 inbox，该推的推到单聊。不做跨群 messages-search 轮询。不要把 Hermes YOLO 接到这条链路。机器人必须在那个群里。
+`feishu serve` 消费 `im.message.receive_v1`。@机器人或「工作伙伴」前缀才在群里回答。群里 @部署者本人 或点名指派会写入 inbox，该推的推到单聊。问某人回复走按人取会话，不搜文档。不做跨群 messages-search 轮询。不要把 Hermes YOLO 接到这条链路。机器人必须在那个群里。

@@ -2,6 +2,7 @@
 
 自建、不付费。目标是对齐 **飞书豆包工作伙伴** 的办公闭环：在飞书里问、在飞书里办事。  
 **不是** 官方 aily / 豆包企业版：没有 AI 额度、智能体工作台、多维表格 AI 字段。
+公开能力、当前覆盖和刻意不做的范围见 [AILY_ALIGNMENT.md](AILY_ALIGNMENT.md)。
 
 手：官方 [`lark-cli`](https://github.com/larksuite/cli)（本机已登录；应用名/ID 勿写入文档）。  
 脑：Cursor 对话（本仓 `SKILL.md`）。飞书单聊走本机 Hermes 隔离档案 `feishupartner`：只有白名单飞书取数 MCP，从不 `--yolo`，不给终端。群里只润色。
@@ -40,13 +41,15 @@ lark-cli auth login --scope "calendar:calendar.event:read search:docs:read"
 | `feishu ask 今天` | 自然语言短指令 |
 | `feishu serve` | 飞书内收消息（WebSocket） |
 | `feishu brief` | 昨天小结 + 今天规划；`--install` 装 09:00 定时，`--push` 推单聊 |
+| `feishu plan <目标>` | 按今天日程、待办、跟进账拆成可执行计划 |
+| `feishu aily` | 对比豆包工作伙伴 / 飞书 aily 功能差距 |
 | `feishu <lark-cli 原生命令>` | 原样转交，如 `feishu wiki +space-list` |
 
 ## 飞书里怎么用
 
 1. 飞书里打开本机那个机器人单聊，或把机器人拉进群。  
 2. 本机执行 `feishu serve`（应用已是 WebSocket 回调，不用隧道）。  
-3. 单聊直接发「帮助」「今天」「待办」「本周计划」。**只有「搜 关键词」才列文档**；其余会读材料再分析。群里请 @机器人，或以「工作伙伴」开头。
+3. 单聊直接发「帮助」「今天」「待办」「本周计划」「拆解 A6 上线」。**只有「搜 关键词」才列文档**；其余会读材料再分析。群里请 @机器人，或以「工作伙伴」开头。
 
 ```text
 飞书消息

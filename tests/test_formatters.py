@@ -8,6 +8,7 @@ import unittest
 from partner.formatters import (
     format_agenda,
     format_chats,
+    format_day_work,
     format_doc,
     format_clarify,
     format_docs_materials,
@@ -17,6 +18,7 @@ from partner.formatters import (
     format_weekly_from_doc,
     format_weekly_human,
     format_wiki_spaces,
+    draft_doc_markdown,
     pick_personal_weekly,
 )
 from partner.lark import parse_cli_output
@@ -133,6 +135,30 @@ class FormattersTests(unittest.TestCase):
         )
         self.assertIn("产品需求评审三轮流程", text)
         self.assertNotIn("文档是空的", text)
+
+    def test_format_doc_strips_html_title(self) -> None:
+        text = format_doc(
+            {
+                "ok": True,
+                "data": {
+                    "markdown": "<title>M8 plus 体验报告</title>\n\n# 产品外观\n",
+                },
+            }
+        )
+        self.assertNotIn("<title>", text)
+        self.assertIn("产品外观", text)
+
+    def test_draft_doc_fills_outline_from_extras(self) -> None:
+        body = draft_doc_markdown(
+            "M8 plus 体验报告",
+            "# 产品外观\n\n# 产品网速\n\n# 产品附带功能",
+            extras=["# 三合一\n- 将录音、转写、翻译合并成一个页面\n- 无本地存储必须买AI套餐"],
+            today="2026-08-18",
+        )
+        self.assertNotIn("<title>", body)
+        self.assertIn("## 产品附带功能", body)
+        self.assertIn("录音", body)
+        self.assertIn("待实测补", body)
 
     def test_wiki_spaces_filter(self) -> None:
         payload = {
@@ -435,6 +461,21 @@ class FormattersTests(unittest.TestCase):
         from partner.formatters import _chat_tokens
 
         self.assertIn("测试", _chat_tokens("写完了需要交给测试人员的"))
+
+    def test_day_work_keeps_followups_when_feishu_tasks_empty(self) -> None:
+        text = format_day_work(
+            "明天没有日程。",
+            "没有未完成待办。",
+            "- 立哥：写份体验总结给我",
+        )
+        self.assertIn("体验总结", text)
+        self.assertIn("要跟的活", text)
+        self.assertNotEqual(text.strip(), "没有未完成待办。")
+
+    def test_day_work_all_empty_is_honest(self) -> None:
+        text = format_day_work("明天没有日程。", "没有未完成待办。", "")
+        self.assertIn("空", text)
+        self.assertNotIn("体验总结", text)
 
 
 if __name__ == "__main__":
