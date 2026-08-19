@@ -477,6 +477,39 @@ def rewrite_plan(goal: str, facts: str, *, timeout: int = 60) -> str:
     return text.strip()
 
 
+def draft_doc_edit(
+    instruction: str,
+    document: str,
+    facts: str = "",
+    *,
+    previous_draft: str = "",
+    timeout: int = 60,
+) -> str:
+    """Draft only the replacement text; writing remains behind explicit confirmation."""
+    if os.environ.get("FEISHU_PARTNER_NO_LLM") == "1":
+        return ""
+    prompt = (
+        "你是吴梦晨的飞书工作伙伴。根据用户要求、目标文档片段和工作事实，"
+        "起草将写入文档的一小段正文。\n"
+        "只输出草稿正文，不解释、不输出标题“草稿”、不调用工具、不声称已经写入。\n"
+        "只能使用材料中已有事实，不许编造人名、进度、日期或结果。\n"
+        "用户说几句/几条就严格控制数量；没有指定时控制在 3-5 条。\n"
+        "若有上一版草稿，按本轮要求修改它，不要重复两版。\n\n"
+        f"【用户要求】\n{(instruction or '').strip()[:1000]}\n\n"
+        f"【目标文档片段】\n{(document or '').strip()[:5000]}\n\n"
+        f"【工作事实】\n{(facts or '').strip()[:5000]}\n\n"
+        f"【上一版草稿】\n{(previous_draft or '').strip()[:2500]}"
+    )
+    text = _invoke_hermes(prompt, timeout=timeout)
+    if not text or "FETCH:" in text or not _is_usable_reply(text, limit=2500):
+        return ""
+    cleaned = text.strip()
+    if cleaned.startswith("```") and cleaned.endswith("```"):
+        cleaned = re.sub(r"^```[^\n]*\n?", "", cleaned)
+        cleaned = re.sub(r"\n?```$", "", cleaned)
+    return cleaned.strip()
+
+
 _BRIEF_STOP = (
     "分析：",
     "等等",

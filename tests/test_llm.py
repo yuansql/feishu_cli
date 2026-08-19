@@ -10,6 +10,7 @@ from partner.llm import (
     _is_usable_reply,
     accept_polished_brief,
     build_hermes_argv,
+    draft_doc_edit,
     isolate_brief,
     parse_fetch,
     rewrite_plan,
@@ -162,6 +163,18 @@ class HermesArgvTests(unittest.TestCase):
             self.assertEqual(rewrite_plan("A6 上线", "【待办】\n- A6"), good.strip())
         with patch("partner.llm._invoke_hermes", return_value="随便做一下就行"):
             self.assertEqual(rewrite_plan("A6 上线", "【待办】\n- A6"), "")
+
+    def test_doc_draft_rejects_provider_errors(self) -> None:
+        from unittest.mock import patch
+
+        error = "LLM provider internal error: litellm.InternalServerError"
+        with patch("partner.llm._invoke_hermes", return_value=error):
+            self.assertEqual(draft_doc_edit("写两句", "原文", "事实"), "")
+        with patch("partner.llm._invoke_hermes", return_value="1. 完成 A6 修复"):
+            self.assertEqual(
+                draft_doc_edit("写一句", "原文", "A6 已完成"),
+                "1. 完成 A6 修复",
+            )
 
     def test_brief_prompt_forbids_invent(self) -> None:
         prompt = _brief_prompt("📋 每日工作简报 · 8月16日 (周六)\n一、昨天小结\n- 研发部周会")

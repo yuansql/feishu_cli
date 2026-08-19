@@ -32,6 +32,14 @@ from .formatters import (
 )
 from .brief import brief_text
 from .aily import alignment_text
+from .artifact import (
+    apply_document_edit,
+    artifact_turn,
+    close_artifact,
+    load_artifact,
+    observe_document,
+    prepare_document_edit,
+)
 from .ids import WEEKLY_QUERY
 from .inbox import recent_items
 from .intents import Intent, looks_like_bare_search, parse_intent
@@ -1036,10 +1044,39 @@ def dispatch(
     chat_id: str = "",
     force_facts: bool = False,
 ) -> str:
+    asked = user_text or (intent.query or "").strip() or intent.action
+    artifact = (
+        load_artifact(chat_id)
+        if chat_id and channel == "p2p" and not force_facts
+        else None
+    )
+    artifact_action = artifact_turn(artifact, asked)
+    if artifact_action == "close":
+        return close_artifact(chat_id)
+    if artifact_action == "confirm":
+        return apply_document_edit(chat_id)
+    if artifact_action == "revise":
+        return prepare_document_edit(
+            chat_id,
+            asked,
+            work_facts=weekly_text(),
+        )
     if intent.action == "resolve":
         ensure_pending_snapshot()
         return resolve_text(intent.query or user_text)
-    asked = user_text or (intent.query or "").strip() or intent.action
+    if (
+        intent.action == "write_doc"
+        and chat_id
+        and channel == "p2p"
+        and not force_facts
+        and "feishu.cn/" in asked
+        and any(word in asked for word in ("写到", "填到", "改", "补充", "更新"))
+    ):
+        return prepare_document_edit(
+            chat_id,
+            asked,
+            work_facts=weekly_text(),
+        )
     if intent.action == "plan":
         goal = (intent.query or asked).strip()
         # IM 单聊走 TaskRunner；CLI / force_facts 仍出文本计划（不依赖 LLM）
@@ -1116,6 +1153,18 @@ def dispatch(
             save_turn(chat_id, kind="action", query=asked, action="tasks", items=items)
     else:
         facts = _facts_for(intent)
+        if (
+            intent.action == "read"
+            and chat_id
+            and channel == "p2p"
+            and not force_facts
+            and facts
+            and not any(
+                marker in facts
+                for marker in ("飞书权威失败", "文档是空的", "读不到正文", "缺权限")
+            )
+        ):
+            observe_document(chat_id, intent.query, facts)
         if chat_id:
             save_turn(chat_id, kind="action", query=asked, action=intent.action, pairs=[])
     if force_facts:
