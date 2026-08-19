@@ -88,6 +88,7 @@ def load_items(path: Path | None = None) -> list[dict[str, Any]]:
 def open_followups_as_pending(path: Path | None = None) -> list[dict[str, Any]]:
     """Same shape as brief pending, so P2P「解决了」能销同事派活。"""
     out: list[dict[str, Any]] = []
+    seen: set[str] = set()
     for item in load_items(path):
         if str(item.get("status") or "") not in _OPEN:
             continue
@@ -97,11 +98,16 @@ def open_followups_as_pending(path: Path | None = None) -> list[dict[str, Any]]:
         who = str(
             item.get("asker_name") or item.get("assignee_name") or item.get("chat_name") or "对方"
         )
+        text = str(item.get("text") or "")
+        fingerprint = f"{who}|{text.strip()}"
+        if fingerprint in seen:
+            continue
+        seen.add(fingerprint)
         out.append(
             {
                 "key": key,
                 "chat_name": who,
-                "text": str(item.get("text") or ""),
+                "text": text,
                 "tag": "跟进",
             }
         )
@@ -296,6 +302,19 @@ def ingest(
                 now=now,
             )
     if created:
+        who = str(
+            created.get("asker_name") or created.get("assignee_name") or ""
+        ).strip()
+        text = str(created.get("text") or "").strip()
+        for old in items:
+            if str(old.get("status") or "") not in _OPEN:
+                continue
+            old_who = str(
+                old.get("asker_name") or old.get("assignee_name") or ""
+            ).strip()
+            if old_who == who and str(old.get("text") or "").strip() == text:
+                save_items(items, path)
+                return None
         items.append(created)
     save_items(items, path)
     return created
@@ -415,9 +434,16 @@ def digest_buckets(
     due: list[dict[str, Any]] = []
     chase: list[dict[str, Any]] = []
     other: list[dict[str, Any]] = []
+    seen: set[str] = set()
     for item in items:
         if not _active(item, today):
             continue
+        who = str(item.get("asker_name") or item.get("assignee_name") or "对方")
+        text = str(item.get("text") or "").strip()
+        fingerprint = f"{who}|{text}"
+        if fingerprint in seen:
+            continue
+        seen.add(fingerprint)
         if _is_due(item, today):
             due.append(item)
         elif _is_chase(item, today):
@@ -504,12 +530,22 @@ def apply_action(
             break
     if found is None:
         return "没找到这条催办。"
-    who = str(found.get("assignee_name") or found.get("asker_name") or "对方")
     today = today or datetime.now(CN_TZ).date()
     if act == "fu_done":
-        found["status"] = "done"
+        who = str(found.get("asker_name") or found.get("assignee_name") or "对方")
+        text = str(found.get("text") or "").strip()
+        for item in items:
+            if str(item.get("status") or "") not in _OPEN:
+                continue
+            same_who = (
+                str(item.get("asker_name") or item.get("assignee_name") or "对方") == who
+            )
+            same_text = str(item.get("text") or "").strip() == text
+            if same_who and same_text:
+                item["status"] = "done"
         save_items(items, path)
         return f"已记下，{who} 那条不再催。"
+    who = str(found.get("assignee_name") or found.get("asker_name") or "对方")
     if act == "fu_snooze":
         found["status"] = "snooze"
         found["snooze_until"] = (today + timedelta(days=1)).isoformat()

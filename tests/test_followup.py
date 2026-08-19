@@ -233,6 +233,35 @@ class IngestLedgerTests(unittest.TestCase):
             self.assertIn("今天要去问谁为什么没给答复", text)
             self.assertIn("王五", text)
 
+    def test_digest_dedupes_same_asker_and_text(self) -> None:
+        items = [
+            {
+                "id": "fu:a",
+                "kind": "direct",
+                "asker_name": "邱俊立",
+                "chat_name": "邱俊立",
+                "text": "研究下这个品技术方案",
+                "status": "open",
+                "due": "",
+                "created_at": "2026-08-17T10:00:00+08:00",
+            },
+            {
+                "id": "fu:b",
+                "kind": "direct",
+                "asker_name": "邱俊立",
+                "chat_name": "邱俊立",
+                "text": "研究下这个品技术方案",
+                "status": "open",
+                "due": "",
+                "created_at": "2026-08-17T11:00:00+08:00",
+            },
+        ]
+        due, chase, other = digest_buckets(items, MON)
+        shown = due + chase + other
+        self.assertEqual(len(shown), 1)
+        text = format_digest_text(due, chase, other)
+        self.assertEqual(text.count("研究下这个品技术方案"), 1)
+
     def test_user_followup_clears_week_chase(self) -> None:
         ask = _group(
             "请王五处理",

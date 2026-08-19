@@ -17,9 +17,12 @@ _DEFAULT_PENDING = Path.home() / ".feishu-partner" / "pending.json"
 _DONE = (
     "已经解决了",
     "已经处理",
+    "已经完成",
     "已解决",
     "解决了",
     "已处理",
+    "已完成",
+    "完成了",
     "搞定了",
     "搞定",
     "不用催了",
@@ -31,6 +34,7 @@ _DONE = (
 _HINT_NOISE = (
     "已经解决了",
     "已经处理",
+    "已经完成",
     "已解决",
     "解决了",
     "这块",
@@ -40,6 +44,8 @@ _HINT_NOISE = (
     "那条",
     "那件事",
     "已处理",
+    "已完成",
+    "完成了",
     "搞定了",
     "搞定",
     "不用催了",
@@ -52,11 +58,15 @@ _HINT_NOISE = (
     "未回复",
     "已追问未答完",
     "待处理",
+    "待回复",
     "（",
     "）",
     "(",
     ")",
     "·",
+)
+_SECTION_DONE_RE = re.compile(
+    r"待处理\s*/\s*待回复|待处理|待回复"
 )
 
 
@@ -79,6 +89,19 @@ def looks_like_resolve(raw: str) -> bool:
     if any(mark in text for mark in ("吗", "？", "?", "有没有", "是不是")):
         return False
     return any(word in text for word in _DONE)
+
+
+def looks_like_pending_section_done(raw: str) -> bool:
+    """「待处理 / 待回复（2项）已经完成」→ 整批销简报 pending。"""
+    text = (raw or "").strip()
+    if not text or not looks_like_resolve(text):
+        return False
+    if not _SECTION_DONE_RE.search(text):
+        return False
+    leftover = resolve_hint(text)
+    leftover = re.sub(r"\d+\s*项?", " ", leftover)
+    leftover = re.sub(r"[/\s]+", "", leftover)
+    return not leftover
 
 
 def resolve_hint(raw: str) -> str:
@@ -195,13 +218,16 @@ def match_pending(hint: str, items: list[dict[str, Any]]) -> list[dict[str, Any]
     needle = (hint or "").strip()
     if not needle:
         return open_items
-    hits: list[dict[str, Any]] = []
+    text_hits: list[dict[str, Any]] = []
+    name_hits: list[dict[str, Any]] = []
     for item in open_items:
         name = str(item.get("chat_name") or "")
-        text = str(item.get("text") or "")
-        if needle in name or (name and name in needle) or needle in text:
-            hits.append(item)
-    return hits
+        text = str(item.get("text") or "").strip()
+        if text and (text in needle or needle in text):
+            text_hits.append(item)
+        elif needle in name or (name and name in needle):
+            name_hits.append(item)
+    return text_hits or name_hits
 
 
 def pending_line(item: dict[str, Any]) -> str:
@@ -264,6 +290,23 @@ def resolve_text(raw: str) -> str:
     items = load_pending()
     hint = resolve_hint(raw)
     followups = open_followups_as_pending()
+    if looks_like_pending_section_done(raw):
+        open_pending = match_pending("", items)
+        if not open_pending:
+            return "待处理里已经没有条目了。"
+        closed = 0
+        for item in open_pending:
+            key = str(item.get("key") or "")
+            if mark_resolved(
+                key,
+                source="text",
+                chat_name=str(item.get("chat_name") or ""),
+                snippet=str(item.get("text") or ""),
+            ):
+                closed += 1
+        if not closed:
+            return "没记下，请再说一遍「已处理」。"
+        return f"已记下，待处理 / 待回复共 {closed} 条，明早简报不再催。"
     reply = assign_reply_body(raw)
     if reply:
         quoted = (raw or "").partition("\n\n")[0]
@@ -297,11 +340,11 @@ def resolve_text(raw: str) -> str:
         if not hits:
             hits = match_pending("", items) or match_pending("", inbox_as_pending())
     else:
-        hits = match_pending(hint, items)
+        hits = match_pending(hint, followups)
+        if not hits:
+            hits = match_pending(hint, items)
         if not hits:
             hits = match_pending(hint, inbox_as_pending())
-        if not hits:
-            hits = match_pending(hint, followups)
     if not hits:
         leftover = followups or match_pending("", items) or match_pending("", inbox_as_pending())
         if leftover:

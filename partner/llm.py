@@ -128,7 +128,7 @@ _CLASSIFY_PROMPT = (
     "把用户这句话分类成一个 JSON 对象，不要解释。\n"
     "action 只能是: today, tomorrow, tasks, brief, weekly, inbox, minutes, "
     "approval, chats, search, read, person, plan, write_doc, resolve, help\n"
-    "已解决/搞定/已经处理 → resolve，不要用 person。\n"
+    "已解决/已完成/搞定/已经处理 → resolve，不要用 person。\n"
     "问某人回复/怎么说/回了没/那边怎么样 → person，query 是人名，不要用 search。\n"
     "要规划/拆解/制定执行步骤/任务模式 → plan，query 是要规划的目标。\n"
     "写文档/给我写个这个/按提纲写 → write_doc，query 是标题或链接。\n"

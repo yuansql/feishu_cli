@@ -44,6 +44,15 @@ class ResolveIntentTests(unittest.TestCase):
             self.assertEqual(intent.action, "resolve", text)
             self.assertNotEqual(intent.action, "person", text)
 
+    def test_already_finished_phrase_is_resolve_not_help(self) -> None:
+        for text in (
+            "邱俊立（邱俊立）好好体验下M8p，写份体验总结给我  已经完成",
+            "待处理 / 待回复（2项） 已经完成",
+            "这块已完成",
+        ):
+            intent = parse_intent(text)
+            self.assertEqual(intent.action, "resolve", text)
+
     def test_which_group_stays_chats(self) -> None:
         self.assertEqual(
             parse_intent("软件发版 测试 孙萌测试是那个群").action, "chats"
@@ -264,6 +273,60 @@ class LedgerTests(unittest.TestCase):
         statuses = {item["id"]: item["status"] for item in load_items()}
         self.assertEqual(statuses["fu:qiu"], "open")
         self.assertEqual(statuses["fu:zhou"], "open")
+
+    def test_already_finished_closes_followup_by_task_text(self) -> None:
+        from partner.followup import load_items, save_items
+
+        save_items(
+            [
+                {
+                    "id": "fu:qiu-m8",
+                    "kind": "direct",
+                    "asker_name": "邱俊立",
+                    "text": "好好体验下M8p，写份体验总结给我",
+                    "status": "open",
+                },
+                {
+                    "id": "fu:qiu-ai",
+                    "kind": "direct",
+                    "asker_name": "邱俊立",
+                    "text": "研究下这个品技术方案，看下录音、转写",
+                    "status": "open",
+                },
+            ]
+        )
+        reply = resolve_text(
+            "邱俊立（邱俊立）好好体验下M8p，写份体验总结给我  已经完成"
+        )
+        self.assertIn("邱俊立", reply)
+        self.assertIn("不再催", reply)
+        self.assertNotIn("直接说", reply)
+        statuses = {item["id"]: item["status"] for item in load_items()}
+        self.assertEqual(statuses["fu:qiu-m8"], "done")
+        self.assertEqual(statuses["fu:qiu-ai"], "open")
+
+    def test_section_header_closes_all_brief_pending(self) -> None:
+        save_pending(
+            [
+                {
+                    "key": "om:a",
+                    "chat_name": "APP沟通群",
+                    "text": "@孙景伦 @吴梦晨 一会没事，就来大会议呗",
+                    "tag": "进行中·已追问未答完",
+                },
+                {
+                    "key": "om:b",
+                    "chat_name": "APP沟通群",
+                    "text": "@吴梦晨 别忘了报销",
+                    "tag": "进行中·已追问未答完",
+                },
+            ]
+        )
+        reply = resolve_text("待处理 / 待回复（2项） 已经完成")
+        self.assertIn("2", reply)
+        self.assertIn("明早简报", reply)
+        self.assertTrue(is_resolved("om:a"))
+        self.assertTrue(is_resolved("om:b"))
 
 
 class CardTests(unittest.TestCase):
