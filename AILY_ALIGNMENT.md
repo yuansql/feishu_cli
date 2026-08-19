@@ -26,10 +26,11 @@
 - 飞书内对话办事：`feishu serve`、单聊/群聊路由、OnIt 反馈、JSON 2.0 卡片。
 - 高频飞书工具：日程、待办、文档、会话、纪要、审批、多维表任务。
 - 定时任务：09:00 简报、今日待跟进、周一任务、表格扫描。
+- **任务模式 v0.2**：`partner/runner.py` 持久任务、读工具链、汇总、**写回跟进账/飞书待办（确认闸）**、续跑/进度/确认写入。
 
 部分具备：
-- 企业知识问答：有文档搜索/读取/单文档分析，但没有完整 RAG、术语库、评测台。
-- 任务规划：本轮新增 `feishu plan <目标>` 和「规划/拆解」自然语言入口；当前只生成计划，不等同于官方任务模式的异步执行和结果跟踪。
+- 企业知识问答：文档搜索 + `~/.feishu-partner/knowledge.json` 知识源优先级；无完整 RAG/评测台。
+- 任务规划：单聊「规划/拆解」走 TaskRunner；CLI `feishu plan` 仍只打印文本。
 - 数据表：有本周任务表和表格艾特扫描，但没有通用 schema/OQL/BI。
 - 记忆隔离：有 session、跟进账、Hermes 隔离档案，但不是企业级记忆系统。
 
@@ -45,7 +46,8 @@
 
 ## 下一步优先级
 
-1. 把 `feishu plan` 的步骤和飞书待办/跟进账打通。
-2. 将常用知识源做成配置清单，回答时按知识源优先级取材料。
-3. 建立 eval fixtures，覆盖误搜、缺权限、泄漏、人物回复、待办完成等高风险场景。
+1. ~~把 `feishu plan` 的步骤和飞书待办/跟进账打通。~~ **已落地**：TaskRunner 写回 `followup_add` + `task_create`，需「确认写入」。
+2. ~~将常用知识源做成配置清单，回答时按知识源优先级取材料。~~ **已落地**：`partner/knowledge.py` + `~/.feishu-partner/knowledge.json`。
+3. ~~建立 eval fixtures~~ **基线已落地**：`tests/test_eval_fixtures.py`（意图/resolve 高风险短语）；后续扩权限/泄漏用例。
 4. 把 brief/followup 抽象成可复用 workflow 配置。
+5. 任务模式：LLM 动态改 plan、异步长跑；~~写云文档（`docs_create` 确认闸）~~ **已接入默认 plan**（周报/文档类目标）。

@@ -31,7 +31,11 @@ from .followup import (
 from .inbox import append_item
 from .intents import parse_intent, strip_wake_prefix
 from .lark import find_lark_cli
-from .llm import _looks_like_leak, _looks_like_transport_error
+from .llm import (
+    _looks_like_leak,
+    _looks_like_provider_error,
+    _looks_like_transport_error,
+)
 from .resolved import confirm_card
 from .watch import consider, format_watch_push
 
@@ -60,6 +64,8 @@ def looks_like_bad_reply(text: str) -> bool:
     if not blob:
         return True
     if _looks_like_transport_error(blob):
+        return True
+    if _looks_like_provider_error(blob):
         return True
     if _looks_like_leak(blob):
         return True

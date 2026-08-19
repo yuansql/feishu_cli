@@ -116,6 +116,67 @@ def _fallback_plan(goal: str, facts: str) -> str:
     return "\n".join(lines)
 
 
+def plan_steps(goal: str, facts: str = "") -> list[dict[str, str | dict[str, str]]]:
+    """Structured steps for TaskRunner (tool + args)."""
+    cleaned = _clean_goal(goal)
+    if not cleaned:
+        return []
+    key = _keyword(cleaned)
+    steps: list[dict[str, str | dict[str, str]]] = [
+        {"title": "读取今天日程、待办和要跟的活", "tool": "today", "args": {}},
+        {"title": "读取未完成待办", "tool": "tasks", "args": {}},
+    ]
+    if any(word in cleaned for word in ("文档", "资料", "制度", "周报", "总结", "方案")):
+        steps.append(
+            {
+                "title": f"搜索相关文档：{key}",
+                "tool": "search",
+                "args": {"query": key},
+            }
+        )
+    if any(word in cleaned for word in ("会议", "纪要", "评审")):
+        steps.append({"title": "读取最近会议纪要", "tool": "minutes", "args": {}})
+    if any(word in cleaned for word in ("审批", "流程")):
+        steps.append({"title": "读取待办审批", "tool": "approval", "args": {}})
+    if any(word in cleaned for word in ("回复", "沟通", "催", "跟进", "谁找我")):
+        steps.append({"title": "读取待跟进与谁找我", "tool": "inbox", "args": {}})
+    if key and not any(str(s.get("tool") or "") == "search" for s in steps):
+        steps.append(
+            {
+                "title": f"搜索相关材料：{key}",
+                "tool": "search",
+                "args": {"query": key},
+            }
+        )
+    steps.append({"title": "汇总材料并给出建议", "tool": "summarize", "args": {}})
+    if any(word in cleaned for word in ("文档", "周报", "总结", "方案", "复盘")):
+        steps.append(
+            {
+                "title": f"创建云文档初稿：{cleaned}",
+                "tool": "docs_create",
+                "args": {"query": cleaned},
+                "requires_confirm": True,
+            }
+        )
+    steps.append(
+        {
+            "title": "写入本地跟进账（需确认）",
+            "tool": "followup_add",
+            "args": {"goal": cleaned},
+            "requires_confirm": True,
+        }
+    )
+    steps.append(
+        {
+            "title": "创建飞书待办（需确认）",
+            "tool": "task_create",
+            "args": {"summary": cleaned},
+            "requires_confirm": True,
+        }
+    )
+    return steps
+
+
 def plan_text(goal: str, facts: str = "", *, allow_llm: bool = True) -> str:
     cleaned = _clean_goal(goal)
     if not cleaned:

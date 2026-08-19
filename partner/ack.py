@@ -24,6 +24,9 @@ _ACK = {
     "digest": "在理待跟进…",
     "weekly_tasks": "在写本周任务…",
     "plan": "在拆计划…",
+    "task_continue": "在跑下一步…",
+    "task_status": "在看任务进度…",
+    "task_confirm": "在同步写回…",
     "aily": "在整理对齐项…",
 }
 

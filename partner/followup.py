@@ -123,6 +123,47 @@ def save_items(items: list[dict[str, Any]], path: Path | None = None) -> None:
     )
 
 
+def add_goal_item(
+    goal: str,
+    *,
+    chat_id: str = "",
+    path: Path | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Manual follow-up row from task mode (not from IM ingest)."""
+    import uuid
+
+    text = (goal or "").strip()
+    if not text:
+        raise ValueError("goal required")
+    now = now or datetime.now(CN_TZ)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=CN_TZ)
+    items = load_items(path)
+    item_id = f"fu:task:{uuid.uuid4().hex[:10]}"
+    item = {
+        "id": item_id,
+        "kind": "task_runner",
+        "chat_id": (chat_id or "").strip(),
+        "chat_name": "任务模式",
+        "message_id": "",
+        "asker_id": "",
+        "asker_name": "我",
+        "assignee_id": "",
+        "assignee_name": "我",
+        "text": text,
+        "due": "",
+        "status": "open",
+        "snooze_until": "",
+        "created_at": now.isoformat(timespec="seconds"),
+        "last_other_at": "",
+        "last_user_at": now.isoformat(timespec="seconds"),
+    }
+    items.append(item)
+    save_items(items, path)
+    return item
+
+
 def extract_due(text: str, today: date) -> date | None:
     raw = text or ""
     match = re.search(r"(\d{1,2})月(\d{1,2})[日号]", raw)

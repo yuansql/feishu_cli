@@ -24,6 +24,11 @@ class TaskDoneIntentTests(unittest.TestCase):
     def test_today_tasks_still_lists(self) -> None:
         self.assertEqual(parse_intent("今天的任务？").action, "today")
 
+    def test_task_done_with_reply_suffix_keeps_task_done(self) -> None:
+        intent = parse_intent("完成任务 回复 结束")
+        self.assertEqual(intent.action, "task_done")
+        self.assertEqual(intent.query, "")
+
 
 class CompleteTaskTests(unittest.TestCase):
     def test_unique_title_completes_and_does_not_search(self) -> None:
@@ -79,6 +84,17 @@ class CompleteTaskTests(unittest.TestCase):
         done.assert_called()
         self.assertIn("已勾完成", out)
         self.assertNotIn("没对上具体材料", out)
+
+    def test_dispatch_task_done_can_append_short_closing_reply(self) -> None:
+        with patch("partner.actions.complete_task_text", return_value="已勾完成：A8"):
+            out = dispatch(
+                parse_intent("完成任务 回复 结束"),
+                user_text="完成任务 回复 结束",
+                channel="p2p",
+                chat_id="oc_p2p",
+            )
+        self.assertIn("已勾完成：A8", out)
+        self.assertTrue(out.endswith("结束"))
 
 
 if __name__ == "__main__":

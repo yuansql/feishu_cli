@@ -68,6 +68,17 @@ _HINT_NOISE = (
 _SECTION_DONE_RE = re.compile(
     r"待处理\s*/\s*待回复|待处理|待回复"
 )
+_NUMBERED_ITEM_RE = re.compile(r"(?m)^\s*\d+[\.、]\s*")
+_DONE_WITH_URL_RE = re.compile(
+    r"(已经完成|已经处理|已完成|完成了|搞定了|搞定|(?<![未不])完成).{0,40}https://|"
+    r"https://.{0,200}(?<![未不])(已经完成|已经处理|已完成|完成了|搞定了|搞定|完成)"
+)
+_INSTRUCTION_MARKERS = (
+    "周报接收人",
+    "只写到",
+    "发一下看看情况",
+    "写到今天",
+)
 
 
 def assign_reply_body(raw: str) -> str:
@@ -82,12 +93,38 @@ def assign_reply_body(raw: str) -> str:
     return body.strip()
 
 
+def looks_like_instruction_blob(raw: str) -> bool:
+    """Weekly/plan constraints that mention「已完成」as status, not ledger close."""
+    text = (raw or "").strip()
+    if not text:
+        return False
+    if len(_NUMBERED_ITEM_RE.findall(text)) >= 2:
+        return True
+    return any(marker in text for marker in _INSTRUCTION_MARKERS)
+
+
+def looks_like_done_with_evidence(raw: str) -> bool:
+    """「…完成 https://…docx」— close followup with doc proof."""
+    text = (raw or "").strip()
+    if not text:
+        return False
+    if any(mark in text for mark in ("吗", "？", "?", "有没有", "是不是")):
+        return False
+    if "feishu.cn/" not in text:
+        return False
+    return bool(_DONE_WITH_URL_RE.search(text.replace("\n", " ")))
+
+
 def looks_like_resolve(raw: str) -> bool:
     text = (raw or "").strip()
     if not text:
         return False
     if any(mark in text for mark in ("吗", "？", "?", "有没有", "是不是")):
         return False
+    if looks_like_instruction_blob(text):
+        return False
+    if looks_like_done_with_evidence(text):
+        return True
     return any(word in text for word in _DONE)
 
 

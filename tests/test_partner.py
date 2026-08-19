@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from partner.actions import dispatch, partner_reply
 from partner.cli import main
-from partner.intents import Intent
+from partner.intents import Intent, parse_intent
 
 
 class PartnerLoopTests(unittest.TestCase):
@@ -74,6 +74,20 @@ class PartnerLoopTests(unittest.TestCase):
         partner.assert_not_called()
         self.assertIn("任务规划", out)
         self.assertIn("A6 上线", out)
+
+    def test_read_my_chats_routes_to_chats(self) -> None:
+        with patch("partner.actions.chats_text", return_value="会话 3 个：") as chats:
+            out = dispatch(
+                Intent(action="chats", query=""),
+                user_text="读取我的聊天",
+                channel="p2p",
+                chat_id="oc_p2p",
+            )
+        chats.assert_called_once_with("")
+        self.assertEqual(out, "会话 3 个：")
+
+    def test_parse_read_my_chats_as_chats(self) -> None:
+        self.assertEqual(parse_intent("读取我的聊天,还是不行").action, "chats")
 
 
 class PartnerCliTests(unittest.TestCase):

@@ -42,6 +42,14 @@ _TRANSPORT_MARKERS = (
     "connection reset by peer",
     "remote end closed connection",
 )
+_PROVIDER_ERROR_MARKERS = (
+    "llm provider",
+    "litellm.",
+    "internalservererror",
+    "openaiexception",
+    "database error, please contact the administrator",
+    "(no retry)",
+)
 
 _COMPOSE_ACTIONS = frozenset(
     {"weekly", "tasks", "unknown", "minutes", "approval"}
@@ -59,6 +67,9 @@ _NO_PARTNER = frozenset(
         "tomorrow",
         "brief",
         "plan",
+        "task_continue",
+        "task_status",
+        "task_confirm",
         "aily",
     }
 )
@@ -165,6 +176,11 @@ def _looks_like_transport_error(text: str) -> bool:
     return any(marker in blob for marker in _TRANSPORT_MARKERS)
 
 
+def _looks_like_provider_error(text: str) -> bool:
+    blob = (text or "").lower()
+    return any(marker in blob for marker in _PROVIDER_ERROR_MARKERS)
+
+
 def _is_usable_reply(text: str, *, limit: int = 1200) -> bool:
     if not text or len(text) < 8:
         return False
@@ -173,6 +189,8 @@ def _is_usable_reply(text: str, *, limit: int = 1200) -> bool:
     if _looks_like_leak(text):
         return False
     if _looks_like_transport_error(text):
+        return False
+    if _looks_like_provider_error(text):
         return False
     if any(marker in text for marker in _THINK_MARKERS):
         return False

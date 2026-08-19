@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import json
 import re
 
-from .resolved import assign_reply_body, looks_like_resolve
+from .resolved import assign_reply_body, looks_like_instruction_blob, looks_like_resolve
 
 
 WAKE_PREFIXES = ("工作伙伴", "伙伴", "/wp", "wp")
@@ -85,6 +85,22 @@ _NEXT_WEEK_EXACT = {
     "下星期安排",
 }
 _PLAN_EXACT = {"任务规划", "任务拆解", "规划任务", "拆解任务", "plan"}
+_TASK_CONTINUE_EXACT = {
+    "继续执行",
+    "继续任务",
+    "接着做",
+    "继续推进",
+    "继续干",
+    "下一步",
+}
+_TASK_STATUS_EXACT = {"任务进度", "进行到哪", "进行到哪了", "进度如何", "任务状态"}
+_TASK_CONFIRM_EXACT = {
+    "确认写入",
+    "确认执行",
+    "确认同步",
+    "执行写入",
+    "确认创建待办",
+}
 _WRITE_DOC_HINTS = (
     "需要给我写文档",
     "给我写文档",
@@ -231,6 +247,8 @@ def looks_like_task_done(raw: str) -> bool:
     text = raw or ""
     if looks_like_resolve(text):
         return False
+    if looks_like_instruction_blob(text):
+        return False
     if any(phrase in text for phrase in _TASK_DONE_PHRASES):
         return True
     if any(verb in text for verb in _TASK_DONE_VERBS) and any(
@@ -242,6 +260,7 @@ def looks_like_task_done(raw: str) -> bool:
 
 def task_done_hint(raw: str) -> str:
     q = raw or ""
+    q = re.sub(r"\s+(?:回复|回)\s+.+$", " ", q)
     for phrase in _TASK_DONE_PHRASES + ("这个待办", "这个任务", "待办", "任务"):
         q = q.replace(phrase, " ")
     for verb in _TASK_DONE_VERBS:
@@ -251,10 +270,15 @@ def task_done_hint(raw: str) -> str:
 
 
 def looks_like_chat_find(raw: str) -> bool:
-    if "群" not in (raw or ""):
+    text = raw or ""
+    if "聊天" in text and any(
+        key in text for key in ("读取", "读", "查看", "看看", "看下", "聊天记录")
+    ):
+        return True
+    if "群" not in text:
         return False
     return any(
-        key in raw
+        key in text
         for key in ("哪个", "那个", "哪一个", "什么群", "叫什么", "是哪个", "是那个")
     )
 
@@ -262,6 +286,14 @@ def looks_like_chat_find(raw: str) -> bool:
 def chat_search_query(raw: str) -> str:
     q = raw or ""
     for noise in (
+        "读取我的聊天",
+        "读取聊天记录",
+        "读取聊天",
+        "读我的聊天",
+        "看我的聊天",
+        "我的聊天记录",
+        "我的聊天",
+        "聊天记录",
         "我想问的是",
         "那个群是哪个",
         "那个群是那个",
@@ -273,6 +305,7 @@ def chat_search_query(raw: str) -> str:
         "什么群",
         "是哪个",
         "是那个",
+        "还是不行",
     ):
         q = q.replace(noise, " ")
     q = re.sub(r"[？?。！!，,、]", " ", q)
@@ -393,6 +426,25 @@ def looks_like_plan(raw: str) -> bool:
     return folded in _PLAN_EXACT or bool(plan_query(raw))
 
 
+def looks_like_task_continue(raw: str) -> bool:
+    folded = _folded(raw)
+    return folded in _TASK_CONTINUE_EXACT
+
+
+def looks_like_task_status(raw: str) -> bool:
+    folded = _folded(raw)
+    if folded in _TASK_STATUS_EXACT:
+        return True
+    return "任务进度" in raw or "进行到哪" in raw
+
+
+def looks_like_task_confirm(raw: str) -> bool:
+    folded = _folded(raw)
+    if folded in _TASK_CONFIRM_EXACT:
+        return True
+    return bool(re.match(r"^确认执行第\s*\d+\s*步", folded))
+
+
 def looks_like_write_doc(raw: str) -> bool:
     text = raw or ""
     if text in _WRITE_WEEKLY:
@@ -449,6 +501,12 @@ def parse_intent(text: str) -> Intent:
         return Intent(action="weekly")
     if looks_like_plan(raw):
         return Intent(action="plan", query=plan_query(raw))
+    if looks_like_task_status(raw):
+        return Intent(action="task_status")
+    if looks_like_task_confirm(raw):
+        return Intent(action="task_confirm")
+    if looks_like_task_continue(raw):
+        return Intent(action="task_continue")
     if looks_like_tasks(raw):
         return Intent(action="tasks")
     if folded in _MINUTES_EXACT or key in _MINUTES_EXACT:

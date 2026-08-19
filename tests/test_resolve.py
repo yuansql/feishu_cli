@@ -53,6 +53,24 @@ class ResolveIntentTests(unittest.TestCase):
             intent = parse_intent(text)
             self.assertEqual(intent.action, "resolve", text)
 
+    def test_weekly_instruction_blob_not_resolve(self) -> None:
+        text = (
+            "1.只写到今天（08-19）\n"
+            "2.周报接收人  吴梦晨     发一下看看情况\n"
+            "3. 邱俊立的两项任务当前进展：M8p 体验总结是否已完成  已完成 "
+            "https://it82yw7fgr.feishu.cn/docx/YdO2dupdQoXGQvx"
+        )
+        intent = parse_intent(text)
+        self.assertNotEqual(intent.action, "resolve")
+        self.assertNotEqual(intent.action, "task_done")
+
+    def test_followup_done_with_doc_url_is_resolve(self) -> None:
+        text = (
+            "邱俊立：好好体验下M8p，写份体验总结给我（跟进）  "
+            "完成 https://it82yw7fgr.feishu.cn/docx/YdO2dupdQoXGQvx"
+        )
+        self.assertEqual(parse_intent(text).action, "resolve")
+
     def test_which_group_stays_chats(self) -> None:
         self.assertEqual(
             parse_intent("软件发版 测试 孙萌测试是那个群").action, "chats"

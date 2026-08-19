@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import json
+import re
 from typing import Any
 
 from .formatters import (
@@ -51,6 +52,7 @@ from .watch import format_inbox_digest
 from .resolved import ensure_pending_snapshot, resolve_text
 from .session import load_turn, looks_like_followup, pick_index, save_turn
 from .planner import plan_text
+from .runner import active_task_for_chat, confirm_writes, continue_task, start_task, status_task
 
 CN_TZ = timezone(timedelta(hours=8))
 
@@ -447,6 +449,22 @@ def complete_task_text(
     return format_lark_error(result)
 
 
+def create_task_item(summary: str, due: str = "") -> str:
+    title = (summary or "").strip()
+    if not title:
+        return "待办标题不能为空。"
+    if len(title) > 200:
+        title = title[:200]
+    args = ["task", "+create", "--summary", title, "--as", "user"]
+    due_text = (due or "").strip()
+    if due_text:
+        args.extend(["--due", due_text])
+    payload = run_lark(args, as_identity="user")
+    if payload.get("ok"):
+        return f"已创建飞书待办：{title}"
+    return format_lark_error(payload)
+
+
 def analyze_result(query: str) -> tuple[str, list[tuple[str, str]]]:
     """Return (reply, title/url pairs). Several hits → ask which. Never dump search lists."""
     if not query:
@@ -511,19 +529,9 @@ def approval_text() -> str:
 def search_text(query: str) -> str:
     if not query:
         return "请给出关键词，例如：搜 周报"
-    docs = run_lark(
-        ["docs", "+search", "--query", query, "--page-size", "10"],
-        as_identity="user",
-    )
-    if docs.get("ok"):
-        return format_docs_search(docs, query=query)
-    wiki = run_lark(["wiki", "+space-list"], as_identity="user")
-    fallback = format_wiki_spaces(wiki, query=query)
-    return (
-        format_lark_error(docs)
-        + "\n\n已降级为知识库空间名筛选（不是全文检索）：\n"
-        + fallback
-    )
+    from .knowledge import search_prioritized
+
+    return search_prioritized(query)
 
 
 def read_text(doc: str) -> str:
@@ -1013,6 +1021,13 @@ def _unknown_nudge(prev: dict[str, Any] | None) -> str:
     return (extra + "直接说：今天 / 待办 / 删掉某条待办 / 搜 关键词。").strip()
 
 
+def _task_done_reply_suffix(raw: str) -> str:
+    matched = re.search(r"\s+(?:回复|回)\s+(.+)$", raw or "")
+    if not matched:
+        return ""
+    return re.sub(r"\s+", " ", matched.group(1)).strip(" ：:，,")
+
+
 def dispatch(
     intent: Intent,
     *,
@@ -1025,12 +1040,29 @@ def dispatch(
         ensure_pending_snapshot()
         return resolve_text(intent.query or user_text)
     asked = user_text or (intent.query or "").strip() or intent.action
+    if intent.action == "plan":
+        goal = (intent.query or asked).strip()
+        # IM 单聊走 TaskRunner；CLI / force_facts 仍出文本计划（不依赖 LLM）
+        if chat_id and goal and not force_facts:
+            return start_task(goal, chat_id)
+        return plan_text(goal, today_text(), allow_llm=not force_facts)
+    if intent.action == "task_continue":
+        return continue_task(chat_id)
+    if intent.action == "task_status":
+        return status_task(chat_id)
+    if intent.action == "task_confirm":
+        return confirm_writes(chat_id)
     prev = load_turn(chat_id) if chat_id else None
+    if chat_id and asked.strip() == "继续" and active_task_for_chat(chat_id):
+        return continue_task(chat_id)
     if intent.action == "task_done":
         reply = complete_task_text(
             intent.query,
             session_items=list((prev or {}).get("items") or []),
         )
+        suffix = _task_done_reply_suffix(asked)
+        if suffix and reply.startswith("已勾完成"):
+            reply += f"\n\n{suffix}"
         if chat_id:
             save_turn(
                 chat_id,
