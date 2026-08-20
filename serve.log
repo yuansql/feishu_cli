@@ -1,0 +1,1183 @@
+工作伙伴开始收消息… /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] local bus not found; checking remote connections...
+[event] remote connection check: online_instance_cnt=0
+[event] started bus daemon pid=29128 (auto-exits 30s after last consumer)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+[source] feishu-websocket: connected
+event: {"type":"im.message.receive_v1","event_id":"89d595b88063914d2c23768d0eca628a","timestamp":"1786700633130","id":"om_x100b68da7b4524b0b1617bddd4a6322","message_id":"om_x100b68da7b4524b0b1617bddd4a6322","create_time":"1786700632659","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"今日"}
+intent=today text='今日'
+reply: 已发送。
+event: {"type":"im.message.receive_v1","event_id":"93fa16b3075ce9cc472003bf6dada318","timestamp":"1786700636757","id":"om_x100b68da7b0e20b4b1d9d6c7e360539","message_id":"om_x100b68da7b0e20b4b1d9d6c7e360539","create_time":"1786700636326","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"今天"}
+intent=today text='今天'
+reply: 已发送。
+event: {"type":"im.message.receive_v1","event_id":"ad46df428cc80640cd783ad74e608f21","timestamp":"1786701015945","id":"om_x100b68da03bb74acb4b6c8d3d3d8d82","message_id":"om_x100b68da03bb74acb4b6c8d3d3d8d82","create_time":"1786701015556","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"本周的周报"}
+intent=unknown text='本周的周报'
+reply: 已发送。
+event: {"type":"im.message.receive_v1","event_id":"512d1beaf95fbddee804695025d23d51","timestamp":"1786701031490","id":"om_x100b68da00a370a4b21dd0abef00c88","message_id":"om_x100b68da00a370a4b21dd0abef00c88","create_time":"1786701031061","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"帮助"}
+intent=help text='帮助'
+reply: 已发送。
+工作伙伴开始收消息… /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] local bus not found; checking remote connections...
+[event] remote connection check: online_instance_cnt=0
+[event] started bus daemon pid=29906 (auto-exits 30s after last consumer)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+[source] feishu-websocket: connected
+event: {"type":"im.message.receive_v1","event_id":"05061d963de3e5462badc094be32cfa9","timestamp":"1786701666319","id":"om_x100b68da38d6f4b4b4914498cb23f2d","message_id":"om_x100b68da38d6f4b4b4914498cb23f2d","create_time":"1786701665845","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"本周周报总结"}
+intent=weekly text='本周周报总结'
+reply: 已发送。
+event: {"type":"im.message.receive_v1","event_id":"7be96ff6504a66b55088e3ac2fdad1df","timestamp":"1786701705705","id":"om_x100b68da365de880b2121384a08f544","message_id":"om_x100b68da365de880b2121384a08f544","create_time":"1786701705127","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"你需要全力查一下我本周的工作内容\n你写的有点人机的感觉需要像人写的一样\n继续"}
+intent=unknown text='你需要全力查一下我本周的工作内容\n你写的有点人机的感觉需要像人写的一样\n继续'
+reply: 已发送。
+工作伙伴开始收消息… /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] local bus not found; checking remote connections...
+[event] remote connection check: online_instance_cnt=0
+[event] started bus daemon pid=35288 (auto-exits 30s after last consumer)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+[source] feishu-websocket: connected
+工作伙伴开始收消息… /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+工作伙伴开始收消息… /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] local bus not found; checking remote connections...
+[event] remote connection check: online_instance_cnt=0
+[event] started bus daemon pid=15267 (auto-exits 30s after last consumer)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+[source] feishu-websocket: connected
+event: {"type":"im.message.receive_v1","event_id":"5740d28736ec6713e0d6aedddec5e574","timestamp":"1786805479525","id":"om_x100b673380bd30a0b304012c776f198","message_id":"om_x100b673380bd30a0b304012c776f198","create_time":"1786805479127","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"下周计划"}
+intent=unknown text='下周计划'
+reply: 已发送。
+event: {"type":"im.message.receive_v1","event_id":"9152223a382c46eb62d9b6ecac859268","timestamp":"1786805519061","id":"om_x100b67339e27b0a4b2ed527b6d43f44","message_id":"om_x100b67339e27b0a4b2ed527b6d43f44","create_time":"1786805518736","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"吴梦晨的下周计划"}
+intent=unknown text='吴梦晨的下周计划'
+reply: 已发送。
+工作伙伴开始收消息… /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+工作伙伴开始收消息… /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+event: {"type":"im.message.receive_v1","event_id":"ca9225e7f5a5ebbb26e7e8233dad70fd","timestamp":"1786807339423","id":"om_x100b673c0c621ca0b3f8ff48a09febb","message_id":"om_x100b673c0c621ca0b3f8ff48a09febb","create_time":"1786807339078","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"本周计划有吗?"}
+intent=unknown text='本周计划有吗?'
+reply: 已发送。
+event: {"type":"im.message.receive_v1","event_id":"a108d2f77d2fab556c1fa25c5baf3d38","timestamp":"1786807361944","id":"om_x100b673c0ad53cacb3c7bd266cbe1d1","message_id":"om_x100b673c0ad53cacb3c7bd266cbe1d1","create_time":"1786807361634","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"本周计划"}
+intent=unknown text='本周计划'
+reply: 已发送。
+event: {"type":"im.message.receive_v1","event_id":"beb8de34078284fb9e3a5b262992ddd0","timestamp":"1786807386046","id":"om_x100b673c0b57f8a4b038254d8f93253","message_id":"om_x100b673c0b57f8a4b038254d8f93253","create_time":"1786807385740","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"A6"}
+intent=unknown text='A6'
+reply: 已发送。
+工作伙伴开始收消息… /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+工作伙伴开始收消息… /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+工作伙伴开始收消息… /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+poll-at-me: 缺 search:message，跨群 @你 先看不到。需本人浏览器授权。
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+工作伙伴开始收消息… /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+工作伙伴开始收消息… /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+工作伙伴开始收消息… /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+工作伙伴开始收消息… /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+工作伙伴开始收消息… /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+工作伙伴开始收消息… /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+工作伙伴开始收消息… /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+工作伙伴开始收消息… /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+工作伙伴开始收消息… /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] local bus not found; checking remote connections...
+[event] remote connection check: online_instance_cnt=0
+[event] started bus daemon pid=854 (auto-exits 30s after last consumer)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+[source] feishu-websocket: connected
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: connected
+工作伙伴开始收消息… /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+工作伙伴开始收消息… /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: connected
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: connected
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: connected
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: connected
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: connected
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: connected
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: connected
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: connected
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: connected
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: reconnecting (attempt 2)
+[source] feishu-websocket: reconnecting (attempt 3)
+[source] feishu-websocket: reconnecting (attempt 4)
+[source] feishu-websocket: connected
+09:00 简报：已推送今日简报。
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: connected
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: connected
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: connected
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: connected
+event: {"type":"im.message.receive_v1","event_id":"1b85f7b28b2593a54eda4e2e9baf684f","timestamp":"1786936168153","id":"om_x100b6713f8baf050b493df7d654809a","message_id":"om_x100b6713f8baf050b493df7d654809a","create_time":"1786936167580","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"软件发版 测试 孙萌测试是那个群"}
+intent=unknown text='软件发版 测试 孙萌测试是那个群'
+reply: 已发送。
+event: {"type":"im.message.receive_v1","event_id":"dbd4e5049471a3fe689731d6b367ea7c","timestamp":"1786936219356","id":"om_x100b6713f76128f4b328c596fc79ebe","message_id":"om_x100b6713f76128f4b328c596fc79ebe","create_time":"1786936218914","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"我想问的是 写完了需要交给测试人员的 那个群是那个?"}
+intent=unknown text='我想问的是 写完了需要交给测试人员的 那个群是那个?'
+reply: 已发送。
+工作伙伴开始收消息… /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+工作伙伴开始收消息… /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+工作伙伴开始收消息… /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+工作伙伴开始收消息… /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+event: {"type":"im.message.receive_v1","event_id":"77ac8735f6efdef405bcb682175a6dd5","timestamp":"1786936829239","id":"om_x100b6713910470a0b4824bb8a40a5bc","message_id":"om_x100b6713910470a0b4824bb8a40a5bc","create_time":"1786936828741","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"回 APP沟通群 那条（进行中) 已经处理"}
+intent=unknown text='回 APP沟通群 那条（进行中) 已经处理'
+reply: 已发送。
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume card.action.trigger --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+skip-non-json: {
+"ok": false,
+"identity": "bot",
+"error": {
+"type": "validation",
+"subtype": "failed_precondition",
+"message": "EventKey card.action.trigger requires callbacks not subscribed in console: card.action.trigger",
+"hint": "subscribe these callbacks by scanning: https://open.feishu.cn/page/launcher?clientID=cli_aaf077d53d389d2d&addons=H4sIAAAAAAAA_6pWSk7MyUlKTM4uVrKqVsosSc0tVrKKVkpOLErRS0wuyczP0yspykxPTy1Siq2tBQQAAP__he-Iai8AAAA"
+}
+}
+卡片事件流已停；文字销账仍可用。
+event: {"type":"im.message.receive_v1","event_id":"7b035ea2a71ae80bf28ce8fabbec31ea","timestamp":"1786940153235","id":"om_x100b671ce146d0a8b103de6dd8b7c0a","message_id":"om_x100b671ce146d0a8b103de6dd8b7c0a","create_time":"1786940152819","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"今天的任务?"}
+intent=unknown text='今天的任务?'
+reply: 已发送。
+event: {"type":"im.message.receive_v1","event_id":"03cbe8ac9ac0a1c922fbd77192a3689f","timestamp":"1786940203436","id":"om_x100b671cfc62a0a4b299daa8cf4b29f","message_id":"om_x100b671cfc62a0a4b299daa8cf4b29f","create_time":"1786940203055","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"详细点,我不知道你在说什么"}
+intent=unknown text='详细点,我不知道你在说什么'
+reply: 已发送。
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume card.action.trigger --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=card.action.trigger), ctrl+c to stop
+[event] ready event_key=card.action.trigger
+event: {"type":"im.message.receive_v1","event_id":"6e62f1691114ef09a89c87daecb82ed9","timestamp":"1786940559958","id":"om_x100b671c8638e138b117c7a71f1dcc1","message_id":"om_x100b671c8638e138b117c7a71f1dcc1","create_time":"1786940559449","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"今天的任务？"}
+intent=tasks text='今天的任务？'
+reply: 已发送。
+event: {"type":"im.message.receive_v1","event_id":"cf9a5feeb7b63af9ef95a4622c5c77f0","timestamp":"1786940649014","id":"om_x100b671c8045cca8b1f21f1a436c6ab","message_id":"om_x100b671c8045cca8b1f21f1a436c6ab","create_time":"1786940648629","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"A8设备邮寄回来（海外Esim卡处理）（2026-08-15） 删除这个待办"}
+intent=unknown text='A8设备邮寄回来（海外Esim卡处理）（2026-08-15） 删除这个待办'
+reply: 已发送。
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume card.action.trigger --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=card.action.trigger), ctrl+c to stop
+[event] ready event_key=card.action.trigger
+event: {"type":"im.message.receive_v1","event_id":"346288f88c809d882565338f2ebb2291","timestamp":"1786941045212","id":"om_x100b671ca986f0a8b3236e11ff83380","message_id":"om_x100b671ca986f0a8b3236e11ff83380","create_time":"1786941044816","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"今天的任务？"}
+intent=tasks text='今天的任务？'
+reply: 已发送。
+event: {"type":"im.message.receive_v1","event_id":"ce8c9caded1082b75817a5e3138e2a6d","timestamp":"1786941084397","id":"om_x100b671ca77338a4b4a2a8cbdcf5527","message_id":"om_x100b671ca77338a4b4a2a8cbdcf5527","create_time":"1786941084028","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"A8设备邮寄回来（海外Esim卡处理）（2026-08-15）  删除这个待办"}
+intent=task_done text='A8设备邮寄回来（海外Esim卡处理）（2026-08-15）  删除这个待办'
+reply: 已发送。
+event: {"type":"im.message.receive_v1","event_id":"085616d757ea1a9b63fabaaef3e632af","timestamp":"1786941097426","id":"om_x100b671ca44360a4b4ad21c1fcb577c","message_id":"om_x100b671ca44360a4b4ad21c1fcb577c","create_time":"1786941097046","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"今天的任务？"}
+intent=tasks text='今天的任务？'
+reply: 已发送。
+intent=tasks text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=tasks text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume card.action.trigger --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=card.action.trigger), ctrl+c to stop
+[event] ready event_key=card.action.trigger
+event: {"type":"card.action.trigger","event_id":"4ff21a2a2dd24eff808d1e6eed47cd87","timestamp":"1786941539519743","operator_id":"ou_757b70ff62056f5c427a56f67b903ba9","message_id":"om_x100b671d4bb05ca4c4eb220e82b2858","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","host":"im_message","token":"c-e403fd0ca2d25f380488d6dd8733570ef5227de1","action_tag":"button","action_value":"{\"act\":\"done\",\"key\":\"om:om_x100b68de837f653cdd8abf770420e43\"}","checked":false,"card_content":"{\"config\":{},\"elements\":
+card: 已发送。 已记下，明早简报不再列 APP沟通群 那条。
+event: {"type":"card.action.trigger","event_id":"cc0268a1434de137d033d5c6754e984e","timestamp":"1786941680857222","operator_id":"ou_757b70ff62056f5c427a56f67b903ba9","message_id":"om_x100b671d4bb05ca4c4eb220e82b2858","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","host":"im_message","token":"c-8e7c862f6e8b2a943f8ce021015a1699adccac53","action_tag":"button","action_value":"{\"act\":\"done\",\"key\":\"om:om_x100b68de837f653cdd8abf770420e43\"}","checked":false,"card_content":"{\"config\":{},\"elements\":
+card: 已发送。 已记下，明早简报不再列 APP沟通群 那条。
+intent=tasks text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=tasks text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=tasks text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=tasks text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=tasks text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+event: {"type":"im.message.receive_v1","event_id":"d4c4aaa3afebe16ea6a3a70dfec024fe","timestamp":"1786945773700","id":"om_x100b671e401c34b4b1d61e6a1fb2a80","message_id":"om_x100b671e401c34b4b1d61e6a1fb2a80","create_time":"1786945773220","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"马丽敏的回复如何?"}
+intent=unknown text='马丽敏的回复如何?'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=tasks text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=tasks text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=tasks text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume card.action.trigger --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=card.action.trigger), ctrl+c to stop
+[event] ready event_key=card.action.trigger
+intent=tasks text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=tasks text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume card.action.trigger --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=card.action.trigger), ctrl+c to stop
+[event] ready event_key=card.action.trigger
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: connected
+[source] feishu-websocket: connected
+event: {"type":"im.message.receive_v1","event_id":"3ac5163bec74d8bfb3d1e5ee74358b7f","timestamp":"1786949110916","id":"om_x100b671e91a92cacb034c9c6ac3112f","message_id":"om_x100b671e91a92cacb034c9c6ac3112f","create_time":"1786949110402","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"马丽敏的回复如何？"}
+intent=person text='马丽敏的回复如何？'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=tasks text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume card.action.trigger --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=card.action.trigger), ctrl+c to stop
+[event] ready event_key=card.action.trigger
+event: {"type":"im.message.receive_v1","event_id":"05d96a0252621549d41fd53046117c0b","timestamp":"1786949491717","id":"om_x100b671eb9ffc0a4b044dcaf2d01320","message_id":"om_x100b671eb9ffc0a4b044dcaf2d01320","create_time":"1786949491240","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"马丽敏的回复如何？"}
+intent=person text='马丽敏的回复如何？'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=person text='张三的回复如何？'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=tasks text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+reply: 飞书权威失败，本地不假装成功。
+原因：timeout
+intent=tasks text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=person text='张三的回复如何？'
+ack-react: ok
+ack-text: 已发送。
+bad-reply, retry facts
+reply: 已发送。
+intent=tasks text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+send-retry attempt=1 飞书权威失败，本地不假装成功。
+原因：timeout
+send-retry ok attempt=2
+reply: 已发送。
+intent=tasks text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=person text='张三的回复如何？'
+ack-react: ok
+ack-text: 已发送。
+bad-reply, retry facts
+reply: 已发送。
+intent=tasks text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+send-retry attempt=1 飞书权威失败，本地不假装成功。
+原因：timeout
+send-retry ok attempt=2
+reply: 已发送。
+intent=tasks text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume card.action.trigger --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=card.action.trigger), ctrl+c to stop
+[event] ready event_key=card.action.trigger
+intent=person text='张三的回复如何？'
+ack-react: ok
+ack-text: 已发送。
+bad-reply, retry facts
+reply: 已发送。
+intent=tasks text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+send-retry attempt=1 飞书权威失败，本地不假装成功。
+原因：timeout
+send-retry ok attempt=2
+reply: 已发送。
+intent=tasks text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=person text='张三的回复如何？'
+ack-react: ok
+ack-text: 已发送。
+bad-reply, retry facts
+reply: 已发送。
+intent=tasks text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+send-retry attempt=1 飞书权威失败，本地不假装成功。
+原因：timeout
+send-retry ok attempt=2
+reply: 已发送。
+intent=tasks text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume card.action.trigger --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=card.action.trigger), ctrl+c to stop
+[event] ready event_key=card.action.trigger
+intent=person text='张三的回复如何？'
+ack-react: ok
+ack-text: 已发送。
+bad-reply, retry facts
+reply: 已发送。
+intent=tasks text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+send-retry attempt=1 飞书权威失败，本地不假装成功。
+原因：timeout
+send-retry ok attempt=2
+reply: 已发送。
+intent=tasks text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume card.action.trigger --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=card.action.trigger), ctrl+c to stop
+[event] ready event_key=card.action.trigger
+event: {"type":"im.message.receive_v1","event_id":"a724452b18def80e3a1ad9c1b86a0b3a","timestamp":"1786964375756","id":"om_x100b671ad7b94134b1b3545c095fc0b","message_id":"om_x100b671ad7b94134b1b3545c095fc0b","create_time":"1786964375399","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"今日任务"}
+intent=tasks text='今日任务'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+event: {"type":"im.message.receive_v1","event_id":"ff586f9e009b9f3901c4fd0a313ab9a7","timestamp":"1786964493064","id":"om_x100b671aee0a4130b30d3e11dbe1c76","message_id":"om_x100b671aee0a4130b30d3e11dbe1c76","create_time":"1786964492608","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"明天的任务"}
+intent=unknown text='明天的任务'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=person text='张三的回复如何？'
+ack-react: ok
+ack-text: 已发送。
+bad-reply, retry facts
+reply: 已发送。
+intent=tasks text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+send-retry attempt=1 飞书权威失败，本地不假装成功。
+原因：timeout
+send-retry ok attempt=2
+reply: 已发送。
+intent=tasks text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume card.action.trigger --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=card.action.trigger), ctrl+c to stop
+[event] ready event_key=card.action.trigger
+intent=person text='张三的回复如何？'
+ack-react: ok
+ack-text: 已发送。
+bad-reply, retry facts
+reply: 已发送。
+intent=tasks text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+send-retry attempt=1 飞书权威失败，本地不假装成功。
+原因：timeout
+send-retry ok attempt=2
+reply: 已发送。
+intent=tasks text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume card.action.trigger --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=card.action.trigger), ctrl+c to stop
+[event] ready event_key=card.action.trigger
+event: {"type":"im.message.receive_v1","event_id":"a0624a6fec8782893836c94ed681ddd7","timestamp":"1786965513405","id":"om_x100b671aae43b8a8b3cfb61ffbfed8f","message_id":"om_x100b671aae43b8a8b3cfb61ffbfed8f","create_time":"1786965512998","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"明天任务"}
+intent=tasks text='明天任务'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=person text='张三的回复如何？'
+ack-react: ok
+ack-text: 已发送。
+bad-reply, retry facts
+reply: 已发送。
+intent=today text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+send-retry attempt=1 飞书权威失败，本地不假装成功。
+原因：timeout
+send-retry ok attempt=2
+reply: 已发送。
+intent=today text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=person text='张三的回复如何？'
+ack-react: ok
+ack-text: 已发送。
+bad-reply, retry facts
+reply: 已发送。
+intent=today text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+send-retry attempt=1 飞书权威失败，本地不假装成功。
+原因：timeout
+send-retry ok attempt=2
+reply: 已发送。
+intent=today text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume card.action.trigger --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=card.action.trigger), ctrl+c to stop
+[event] ready event_key=card.action.trigger
+event: {"type":"im.message.receive_v1","event_id":"730dccac2ab68e868580b1b2e37bd09c","timestamp":"1786965995603","id":"om_x100b671ab07dd08cb1f336fd135cbbf","message_id":"om_x100b671ab07dd08cb1f336fd135cbbf","create_time":"1786965995119","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"明天任务"}
+intent=tomorrow text='明天任务'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=person text='张三的回复如何？'
+ack-react: ok
+ack-text: 已发送。
+bad-reply, retry facts
+reply: 已发送。
+intent=today text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+send-retry attempt=1 飞书权威失败，本地不假装成功。
+原因：timeout
+send-retry ok attempt=2
+reply: 已发送。
+intent=today text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume card.action.trigger --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=card.action.trigger), ctrl+c to stop
+[event] ready event_key=card.action.trigger
+event: {"type":"im.message.receive_v1","event_id":"7f65f5b20a7b11bb91793e10d76dfad7","timestamp":"1786966371715","id":"om_x100b671b58fe94b0b30bb080f7b2fbc","message_id":"om_x100b671b58fe94b0b30bb080f7b2fbc","create_time":"1786966371280","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"明天任务"}
+intent=tomorrow text='明天任务'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=person text='张三的回复如何？'
+ack-react: ok
+ack-text: 已发送。
+bad-reply, retry facts
+reply: 已发送。
+intent=today text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+send-retry attempt=1 飞书权威失败，本地不假装成功。
+原因：timeout
+send-retry ok attempt=2
+reply: 已发送。
+intent=today text='今天的任务？'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume card.action.trigger --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=card.action.trigger), ctrl+c to stop
+[event] ready event_key=card.action.trigger
+intent=person text='张三的回复如何？'
+ack-react: ok
+ack-text: 已发送。
+bad-reply, retry facts
+reply: 已发送。
+intent=tasks text='待办'
+ack-react: ok
+ack-text: 已发送。
+send-retry attempt=1 飞书权威失败，本地不假装成功。
+原因：timeout
+send-retry ok attempt=2
+reply: 已发送。
+intent=tasks text='待办'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=tomorrow text='明天任务'
+ack-react: ok
+ack-text: 已发送。
+reply: card
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume card.action.trigger --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=card.action.trigger), ctrl+c to stop
+[event] ready event_key=card.action.trigger
+intent=person text='张三的回复如何？'
+ack-react: ok
+ack-text: 已发送。
+bad-reply, retry facts
+reply: 已发送。
+intent=tasks text='待办'
+ack-react: ok
+ack-text: 已发送。
+send-retry attempt=1 飞书权威失败，本地不假装成功。
+原因：timeout
+send-retry ok attempt=2
+reply: 已发送。
+intent=tasks text='待办'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=tomorrow text='明天任务'
+ack-react: ok
+ack-text: 已发送。
+reply: card
+intent=person text='张三的回复如何？'
+intent=person text='张三的回复如何？'
+ack-react: ok
+ack-text: 已发送。
+bad-reply, retry facts
+reply: 已发送。
+intent=tasks text='待办'
+ack-react: ok
+ack-text: 已发送。
+send-retry attempt=1 飞书权威失败，本地不假装成功。
+原因：timeout
+send-retry ok attempt=2
+reply: 已发送。
+intent=tasks text='待办'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=tomorrow text='明天任务'
+ack-react: ok
+ack-text: 已发送。
+reply: card
+intent=person text='张三的回复如何？'
+ack-react: ok
+ack-text: 已发送。
+bad-reply, retry facts
+reply: 已发送。
+intent=tasks text='待办'
+ack-react: ok
+ack-text: 已发送。
+send-retry attempt=1 飞书权威失败，本地不假装成功。
+原因：timeout
+send-retry ok attempt=2
+reply: 已发送。
+intent=tasks text='待办'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=tomorrow text='明天任务'
+ack-react: ok
+ack-text: 已发送。
+reply: card
+intent=person text='张三的回复如何？'
+ack-react: ok
+ack-text: 已发送。
+bad-reply, retry facts
+reply: 已发送。
+intent=tasks text='待办'
+ack-react: ok
+ack-text: 已发送。
+send-retry attempt=1 飞书权威失败，本地不假装成功。
+原因：timeout
+send-retry ok attempt=2
+reply: 已发送。
+intent=tasks text='待办'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=tomorrow text='明天任务'
+ack-react: ok
+ack-text: 已发送。
+reply: card
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume card.action.trigger --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=card.action.trigger), ctrl+c to stop
+[event] ready event_key=card.action.trigger
+intent=person text='张三的回复如何？'
+ack-react: ok
+ack-text: 已发送。
+bad-reply, retry facts
+reply: 已发送。
+intent=tasks text='待办'
+ack-react: ok
+ack-text: 已发送。
+send-retry attempt=1 飞书权威失败，本地不假装成功。
+原因：timeout
+send-retry ok attempt=2
+reply: 已发送。
+intent=tasks text='待办'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=tomorrow text='明天任务'
+ack-react: ok
+ack-text: 已发送。
+reply: card
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume card.action.trigger --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=card.action.trigger), ctrl+c to stop
+[event] ready event_key=card.action.trigger
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: connected
+[source] feishu-websocket: connected
+09:00 简报：卡片没发出，已改发文字。
+09:00 待跟进：卡片没发出，已改发文字。
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: connected
+[source] feishu-websocket: connected
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: connected
+[source] feishu-websocket: connected
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: connected
+[source] feishu-websocket: connected
+event: {"type":"im.message.receive_v1","event_id":"ca8a81812e9a433b2dddc02047487f5e","timestamp":"1787016657409","id":"om_x100b670f13c140b4b1bc1dbbd081a5f","message_id":"om_x100b670f13c140b4b1bc1dbbd081a5f","create_time":"1787016656916","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"搜 A6适配"}
+intent=search text='搜 A6适配'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: connected
+[source] feishu-websocket: connected
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: connected
+[source] feishu-websocket: connected
+event: {"type":"im.message.receive_v1","event_id":"5af8e332e37c44e3d12c346d619d1467","timestamp":"1787023857024","id":"om_x100b670951c940b0b1c639bc43b35ea","message_id":"om_x100b670951c940b0b1c639bc43b35ea","create_time":"1787023856497","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"https://it82yw7fgr.feishu.cn/docx/XejPdMKb2oPkk1xGilvcb4Pznqd  给我写个这个?"}
+intent=read text='https://it82yw7fgr.feishu.cn/docx/XejPdMKb2oPkk1xGilvcb4Pznqd  给我写个这个?'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=person text='张三的回复如何？'
+ack-react: ok
+ack-text: 已发送。
+bad-reply, retry facts
+reply: 已发送。
+intent=tasks text='待办'
+ack-react: ok
+ack-text: 已发送。
+send-retry attempt=1 飞书权威失败，本地不假装成功。
+原因：timeout
+send-retry ok attempt=2
+reply: 已发送。
+intent=tasks text='待办'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=tomorrow text='明天任务'
+ack-react: ok
+ack-text: 已发送。
+reply: card
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume card.action.trigger --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=card.action.trigger), ctrl+c to stop
+[event] ready event_key=card.action.trigger
+intent=person text='张三的回复如何？'
+ack-react: ok
+ack-text: 已发送。
+bad-reply, retry facts
+reply: 已发送。
+intent=tasks text='待办'
+ack-react: ok
+ack-text: 已发送。
+send-retry attempt=1 飞书权威失败，本地不假装成功。
+原因：timeout
+send-retry ok attempt=2
+reply: 已发送。
+intent=tasks text='待办'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=tomorrow text='明天任务'
+ack-react: ok
+ack-text: 已发送。
+reply: card
+intent=person text='张三的回复如何？'
+ack-react: ok
+ack-text: 已发送。
+bad-reply, retry facts
+reply: 已发送。
+intent=tasks text='待办'
+ack-react: ok
+ack-text: 已发送。
+send-retry attempt=1 飞书权威失败，本地不假装成功。
+原因：timeout
+send-retry ok attempt=2
+reply: 已发送。
+intent=tasks text='待办'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=tomorrow text='明天任务'
+ack-react: ok
+ack-text: 已发送。
+reply: card
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume card.action.trigger --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=card.action.trigger), ctrl+c to stop
+[event] ready event_key=card.action.trigger
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: connected
+[source] feishu-websocket: connected
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: connected
+[source] feishu-websocket: connected
+assign-push: 已发送。 fu:om_x100b6775382ef4b0b24e6dba3dbcd1c
+assign-push: 已发送。 fu:om_x100b6774b3fca4b8b1dc8f9b7fd034f
+event: {"type":"im.message.receive_v1","event_id":"650dae91388b3a69648a02d115ea2c10","timestamp":"1787043232335","id":"om_x100b67759731d0a0b1b95c6d6140eb5","message_id":"om_x100b67759731d0a0b1b95c6d6140eb5","create_time":"1787043231895","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"刚记下周学彬派你的活：\n我咋记得之前不是一起做的APP吗\n\n这个我已经解决了"}
+intent=unknown text='刚记下周学彬派你的活：\n我咋记得之前不是一起做的APP吗\n\n这个我已经解决了'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=person text='张三的回复如何？'
+ack-react: ok
+ack-text: 已发送。
+bad-reply, retry facts
+reply: 已发送。
+intent=tasks text='待办'
+ack-react: ok
+ack-text: 已发送。
+send-retry attempt=1 飞书权威失败，本地不假装成功。
+原因：timeout
+send-retry ok attempt=2
+reply: 已发送。
+intent=tasks text='待办'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=tomorrow text='明天任务'
+ack-react: ok
+ack-text: 已发送。
+reply: card
+intent=person text='张三的回复如何？'
+ack-react: ok
+ack-text: 已发送。
+bad-reply, retry facts
+reply: 已发送。
+intent=tasks text='待办'
+ack-react: ok
+ack-text: 已发送。
+send-retry attempt=1 飞书权威失败，本地不假装成功。
+原因：timeout
+send-retry ok attempt=2
+reply: 已发送。
+intent=tasks text='待办'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=tomorrow text='明天任务'
+ack-react: ok
+ack-text: 已发送。
+reply: card
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume card.action.trigger --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=card.action.trigger), ctrl+c to stop
+[event] ready event_key=card.action.trigger
+event: {"type":"im.message.receive_v1","event_id":"d273837703968ee23050dbbe4ac8e339","timestamp":"1787044777067","id":"om_x100b6776744ac8a4b39febea462ffb3","message_id":"om_x100b6776744ac8a4b39febea462ffb3","create_time":"1787044776574","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"周学彬那条已解决"}
+intent=resolve text='周学彬那条已解决'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=person text='张三的回复如何？'
+ack-react: ok
+ack-text: 已发送。
+bad-reply, retry facts
+reply: 已发送。
+intent=tasks text='待办'
+ack-react: ok
+ack-text: 已发送。
+send-retry attempt=1 飞书权威失败，本地不假装成功。
+原因：timeout
+send-retry ok attempt=2
+reply: 已发送。
+intent=tasks text='待办'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=tomorrow text='明天任务'
+ack-react: ok
+ack-text: 已发送。
+reply: card
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume card.action.trigger --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=card.action.trigger), ctrl+c to stop
+[event] ready event_key=card.action.trigger
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: connected
+[source] feishu-websocket: connected
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: connected
+[source] feishu-websocket: connected
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume card.action.trigger --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] local bus not found; checking remote connections...
+[event] remote connection check: online_instance_cnt=0
+[event] started bus daemon pid=3520 (auto-exits 30s after last consumer)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=card.action.trigger), ctrl+c to stop
+[event] ready event_key=card.action.trigger
+[source] feishu-websocket: connected
+[source] feishu-websocket: connected
+09:00 简报：卡片没发出，已改发文字。
+event: {"type":"im.message.receive_v1","event_id":"8f926a0be78c30f94a8c9d15bdec430b","timestamp":"1787101242970","id":"om_x100b67644d6bb4a4b27fd1cf533e8a8","message_id":"om_x100b67644d6bb4a4b27fd1cf533e8a8","create_time":"1787101242492","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"邱俊立（邱俊立）好好体验下M8p，写份体验总结给我  已经完成"}
+intent=unknown text='邱俊立（邱俊立）好好体验下M8p，写份体验总结给我  已经完成'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+event: {"type":"im.message.receive_v1","event_id":"5cb1add792d1d90adb15d036b14499a6","timestamp":"1787101414370","id":"om_x100b67644090c8a4b04bc9a3b96a8e5","message_id":"om_x100b67644090c8a4b04bc9a3b96a8e5","create_time":"1787101413944","chat_id":"oc_e1dac49bd713a3692b5a6b6bc6e3745f","chat_type":"p2p","message_type":"text","sender_id":"ou_757b70ff62056f5c427a56f67b903ba9","sender_type":"user","content":"待处理 / 待回复（2项） 已经完成"}
+intent=unknown text='待处理 / 待回复（2项） 已经完成'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: connected
+[source] feishu-websocket: connected
+intent=person text='张三的回复如何？'
+ack-react: ok
+ack-text: 已发送。
+bad-reply, retry facts
+reply: 已发送。
+intent=tasks text='待办'
+ack-react: ok
+ack-text: 已发送。
+send-retry attempt=1 飞书权威失败，本地不假装成功。
+原因：timeout
+send-retry ok attempt=2
+reply: 已发送。
+intent=tasks text='待办'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=tomorrow text='明天任务'
+ack-react: ok
+ack-text: 已发送。
+reply: card
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume im.message.receive_v1 --as bot
+工作伙伴收事件 /Users/wumm/.local/bin/lark-cli event consume card.action.trigger --as bot
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=im.message.receive_v1), ctrl+c to stop
+[event] ready event_key=im.message.receive_v1
+[event] consuming as cli_aaf077d53d389d2d (cli_aaf077d53d389d2d)
+[event] listening for events (key=card.action.trigger), ctrl+c to stop
+[event] ready event_key=card.action.trigger
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: connected
+[source] feishu-websocket: connected
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: disconnected
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: reconnecting (attempt 1)
+[source] feishu-websocket: connected
+[source] feishu-websocket: connected
+intent=person text='张三的回复如何？'
+ack-react: ok
+ack-text: 已发送。
+bad-reply, retry facts
+reply: 已发送。
+intent=tasks text='待办'
+ack-react: ok
+ack-text: 已发送。
+send-retry attempt=1 飞书权威失败，本地不假装成功。
+原因：timeout
+send-retry ok attempt=2
+reply: 已发送。
+intent=tasks text='待办'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=tomorrow text='明天任务'
+ack-react: ok
+ack-text: 已发送。
+reply: card
+intent=person text='张三的回复如何？'
+ack-react: ok
+ack-text: 已发送。
+bad-reply, retry facts
+reply: 已发送。
+intent=tasks text='待办'
+ack-react: ok
+ack-text: 已发送。
+send-retry attempt=1 飞书权威失败，本地不假装成功。
+原因：timeout
+send-retry ok attempt=2
+reply: 已发送。
+intent=tasks text='待办'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=tomorrow text='明天任务'
+ack-react: ok
+ack-text: 已发送。
+reply: card
+intent=person text='张三的回复如何？'
+ack-react: ok
+ack-text: 已发送。
+bad-reply, retry facts
+reply: 已发送。
+intent=tasks text='待办'
+ack-react: ok
+ack-text: 已发送。
+send-retry attempt=1 飞书权威失败，本地不假装成功。
+原因：timeout
+send-retry ok attempt=2
+reply: 已发送。
+intent=tasks text='待办'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=tomorrow text='明天任务'
+ack-react: ok
+ack-text: 已发送。
+reply: card
+intent=person text='张三的回复如何？'
+ack-react: ok
+ack-text: 已发送。
+bad-reply, retry facts
+reply: 已发送。
+intent=tasks text='待办'
+ack-react: ok
+ack-text: 已发送。
+send-retry attempt=1 飞书权威失败，本地不假装成功。
+原因：timeout
+send-retry ok attempt=2
+reply: 已发送。
+intent=tasks text='待办'
+ack-react: ok
+ack-text: 已发送。
+reply: 已发送。
+intent=tomorrow text='明天任务'
+ack-react: ok
+ack-text: 已发送。
+reply: card

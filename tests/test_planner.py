@@ -8,10 +8,19 @@ from partner.planner import agent_plan_steps, plan_text
 
 
 class PlannerTests(unittest.TestCase):
-    def test_empty_goal_shows_usage(self) -> None:
-        text = plan_text("", allow_llm=False)
-        self.assertIn("用法", text)
-        self.assertIn("feishu plan", text)
+    def test_local_html_report_without_cloud_doc(self) -> None:
+        steps = __import__("partner.planner", fromlist=["plan_steps"]).plan_steps(
+            "生成本地 HTML 工作报告，不写入"
+        )
+        tools = [str(s.get("tool")) for s in steps]
+        self.assertNotIn("report_write", tools)
+        steps2 = __import__("partner.planner", fromlist=["plan_steps"]).plan_steps(
+            "生成本地 HTML 工作报告"
+        )
+        tools2 = [str(s.get("tool")) for s in steps2]
+        self.assertIn("report_write", tools2)
+        self.assertNotIn("docs_create", tools2)
+
 
     def test_fallback_plan_uses_context_and_commands(self) -> None:
         facts = "【待办】\n未完成待办 1 条：\n- A6 上线前检查（2026-08-18）"

@@ -6,7 +6,6 @@ import os
 import subprocess
 from pathlib import Path
 
-from .ids import BOT_OPEN_ID, P2P_CHAT_ID, USER_NAMES, USER_OPEN_ID, WEEKLY_QUERY
 from .lark import find_lark_cli
 
 BRIEF_LABEL = "com.feishu.partner.brief"
@@ -145,12 +144,15 @@ def serve_plist_body(feishu_bin: str, path_value: str, env: dict[str, str]) -> s
 
 
 def _serve_env() -> dict[str, str]:
+    from . import ids as _ids
+
+    _ids.reload_identity()
     return {
-        "FEISHU_PARTNER_USER_OPEN_ID": USER_OPEN_ID,
-        "FEISHU_PARTNER_BOT_OPEN_ID": BOT_OPEN_ID,
-        "FEISHU_PARTNER_P2P_CHAT_ID": P2P_CHAT_ID,
-        "FEISHU_PARTNER_USER_NAMES": ",".join(USER_NAMES),
-        "FEISHU_PARTNER_WEEKLY_QUERY": WEEKLY_QUERY,
+        "FEISHU_PARTNER_USER_OPEN_ID": _ids.USER_OPEN_ID,
+        "FEISHU_PARTNER_BOT_OPEN_ID": _ids.BOT_OPEN_ID,
+        "FEISHU_PARTNER_P2P_CHAT_ID": _ids.P2P_CHAT_ID,
+        "FEISHU_PARTNER_USER_NAMES": ",".join(_ids.USER_NAMES),
+        "FEISHU_PARTNER_WEEKLY_QUERY": _ids.WEEKLY_QUERY,
     }
 
 
@@ -222,6 +224,11 @@ def install_schedule() -> str:
 
 
 def install_serve() -> str:
+    from .ids import identity_hint, identity_ready, reload_identity
+
+    reload_identity()
+    if not identity_ready():
+        return identity_hint()
     feishu = partner_bin()
     if not feishu.exists():
         return f"找不到 {feishu}，收消息定时没装上。"

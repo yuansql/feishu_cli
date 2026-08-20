@@ -141,14 +141,14 @@ class FormatBriefTests(unittest.TestCase):
             {
                 "message_id": "om_reply",
                 "create_time": "2026-08-14 13:51",
-                "sender": {"id": "ou_757b70ff62056f5c427a56f67b903ba9"},
+                "sender": {"id": "ou_fixture_user"},
             },
         ]
         self.assertTrue(
             user_spoke_after(
                 messages,
                 after=after,
-                user_id="ou_757b70ff62056f5c427a56f67b903ba9",
+                user_id="ou_fixture_user",
                 skip_id="om_mention",
             )
         )
@@ -162,7 +162,7 @@ class FormatBriefTests(unittest.TestCase):
                     }
                 ],
                 after=after,
-                user_id="ou_757b70ff62056f5c427a56f67b903ba9",
+                user_id="ou_fixture_user",
                 skip_id="om_mention",
             )
         )

@@ -421,6 +421,12 @@ def _doc_title_url(item: dict[str, Any]) -> tuple[str, str]:
     return title, url
 
 
+def _owner_name_hit(title: str) -> bool:
+    from .ids import USER_NAMES
+
+    return any(name and name in title for name in USER_NAMES)
+
+
 def _weekly_doc_refs(payload: dict[str, Any], limit: int = 2) -> list[tuple[str, str]]:
     items = _items(payload, "results", "items", "docs", "nodes")
     scored: list[tuple[int, str, str]] = []
@@ -434,7 +440,7 @@ def _weekly_doc_refs(payload: dict[str, Any], limit: int = 2) -> list[tuple[str,
             continue
         seen.add(key)
         score = 0
-        if "吴梦晨" in title:
+        if _owner_name_hit(title):
             score += 2
         if "周报" in title:
             score += 1
@@ -516,7 +522,7 @@ def format_weekly_human(
 
 def pick_personal_weekly(docs_payload: dict[str, Any]) -> tuple[str, str]:
     for title, url in _weekly_doc_refs(docs_payload, limit=5):
-        if "吴梦晨" in title and url:
+        if _owner_name_hit(title) and url:
             return title, url
     return "", ""
 
@@ -706,7 +712,7 @@ def format_weekly_from_doc(
     source_url: str = "",
     focus: str = "",
 ) -> str:
-    """Reshape 吴梦晨's own weekly doc into a Doubao-style chat reply."""
+    """Reshape the deployer's own weekly doc into a Doubao-style chat reply."""
     cleaned = _clean_feishu_md(raw_md)
     if len(cleaned) < 80:
         return ""
@@ -783,7 +789,11 @@ def format_weekly_from_doc(
     return text
 
 
-HELP_TEXT = """我是吴梦晨的飞书工作伙伴（本地可独立运行，也可接入官方 Aily）。
+def help_text() -> str:
+    from .ids import display_name, identity_ready
+
+    who = display_name() if identity_ready() else "你"
+    return f"""我是{who}的飞书工作伙伴（本地独立运行，功能对标 Aily，不对接 Aily）。
 
 单聊直接说；群里请 @我，或以「工作伙伴」「伙伴」开头。
 
@@ -792,6 +802,7 @@ HELP_TEXT = """我是吴梦晨的飞书工作伙伴（本地可独立运行，�
 - 我今天干了什么 / 读今天消息  （分页读取当天跨会话消息，归纳确认做过/推进中/待确认；「继续确认」沿用上下文）
 - 本周的周报 / 下周计划
 - 任务模式 A6上线前检查 / 规划 写周报  （后台先观察再动态规划；可说「任务进度」「取消任务」「继续执行」；写入仍需确认）
+- 本地 HTML 报告 / 生成本地报告  （落盘 ~/.feishu-partner/reports/；上传飞书需确认）
 - 早报 / 简报  （昨天小结：推进/待回复/长期待办；今天：日程+TOP5；每天 09:00 也会推）
 - 待办 / 审批 / 会议纪要
 - 删掉某条待办  （先说待办，再贴标题 +「删除这个待办」；飞书是勾完成）
@@ -818,4 +829,9 @@ HELP_TEXT = """我是吴梦晨的飞书工作伙伴（本地可独立运行，�
 群里@你或点名指派，机器人在那个群且 serve 开着才会记/推。
 
 不会做：aily 工作台/额度/虚拟电脑、Hermes YOLO 接群。电脑没开 `feishu serve` 时，飞书里不会回。
+换人部署先跑：`feishu setup --name 你的名字`（身份写本机 config，不进 git）。
 """
+
+
+# Backward-compatible name for imports that expect a string snapshot.
+HELP_TEXT = help_text()

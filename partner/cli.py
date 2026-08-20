@@ -20,7 +20,7 @@ from .brief import brief_text, push_brief
 from .followup import digest_text, push_digest
 from .ids import P2P_CHAT_ID
 from .schedule import install_schedule, install_serve
-from .formatters import HELP_TEXT
+from .formatters import help_text
 from .intents import parse_intent
 from .lark import find_lark_cli
 from .serve import serve as serve_loop
@@ -51,6 +51,10 @@ PARTNER_CMDS = {
     "workflow",
     "rag",
     "sandbox",
+    "eval",
+    "versions",
+    "setup",
+    "report",
 }
 
 
@@ -62,8 +66,8 @@ def _passthrough(argv: list[str]) -> int:
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv or argv[0] in {"-h", "--help"}:
-        print(HELP_TEXT)
-        print("CLI：feishu status|doctor|today|tasks|search|read|chats|send|serve|brief|followup|aily|plan")
+        print(help_text())
+        print("CLI：feishu setup|status|doctor|today|tasks|search|read|chats|send|serve|brief|followup|report|aily|plan")
         print("其余参数原样交给 lark-cli，例如：feishu calendar +agenda")
         return 0
     head = argv[0]
@@ -86,6 +90,14 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("help")
     sub.add_parser("aily")
     sub.add_parser("align")
+
+    p_setup = sub.add_parser("setup")
+    p_setup.add_argument("--name", default="")
+    p_setup.add_argument("--weekly-query", default="")
+    p_setup.add_argument("--force", action="store_true")
+
+    p_report = sub.add_parser("report")
+    p_report.add_argument("title", nargs="*")
 
     p_search = sub.add_parser("search")
     p_search.add_argument("query", nargs="+")
@@ -144,6 +156,10 @@ def main(argv: list[str] | None = None) -> int:
     p_rag.add_argument("rag_args", nargs="*", default=[])
 
     sub.add_parser("sandbox")
+    sub.add_parser("eval")
+
+    p_versions = sub.add_parser("versions")
+    p_versions.add_argument("versions_args", nargs="*", default=[])
 
     args = parser.parse_args(argv)
     if args.cmd == "status":
@@ -165,7 +181,23 @@ def main(argv: list[str] | None = None) -> int:
         print(chats_text())
         return 0
     if args.cmd == "help":
-        print(HELP_TEXT)
+        print(help_text())
+        return 0
+    if args.cmd == "setup":
+        from .setup import setup_text
+
+        print(
+            setup_text(
+                name=args.name,
+                weekly_query=args.weekly_query,
+                force=args.force,
+            )
+        )
+        return 0
+    if args.cmd == "report":
+        from .report import report_cli
+
+        print(report_cli(list(args.title or [])))
         return 0
     if args.cmd in {"aily", "align"}:
         print(dispatch(parse_intent("aily"), force_facts=True))
@@ -291,5 +323,15 @@ def main(argv: list[str] | None = None) -> int:
 
         print(sandbox_status_text())
         return 0
-    print(HELP_TEXT)
+    if args.cmd == "eval":
+        from .eval import eval_text
+
+        print(eval_text())
+        return 0
+    if args.cmd == "versions":
+        from .versions import versions_text
+
+        print(versions_text(getattr(args, "versions_args", []) or []))
+        return 0
+    print(help_text())
     return 0

@@ -57,9 +57,13 @@ def profile_config_text() -> str:
     )
 
 
-SOUL_MD = """# 飞书工作伙伴
+def soul_md() -> str:
+    from .ids import display_name
 
-你是吴梦晨在飞书里的工作伙伴。用第一人称（我）说话，像同事，不要客服腔。
+    name = display_name()
+    return f"""# 飞书工作伙伴
+
+你是{name}在飞书里的工作伙伴。用第一人称（我）说话，像同事，不要客服腔。
 
 只通过 feishu_* 工具取飞书材料。不要用终端、不要改文件、不要开浏览器、不要发消息、不要写周报云文档。
 问哪个群、交给测试的群：用 feishu_chats（可带 query），不要搜文档。
@@ -82,7 +86,7 @@ def ensure_profile() -> bool:
     dest = profile_dir()
     dest.mkdir(parents=True, exist_ok=True)
     (dest / "config.yaml").write_text(profile_config_text(), encoding="utf-8")
-    (dest / "SOUL.md").write_text(SOUL_MD, encoding="utf-8")
+    (dest / "SOUL.md").write_text(soul_md(), encoding="utf-8")
     (dest / ".no-bundled-skills").write_text(
         "This profile opted out of bundled-skill seeding.\n",
         encoding="utf-8",

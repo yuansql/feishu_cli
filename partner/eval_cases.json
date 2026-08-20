@@ -1,0 +1,14 @@
+{
+  "cases": [
+    {"id": "done-not-unknown", "text": "已经完成了", "expect_action_not": "unknown"},
+    {"id": "resolved-not-unknown", "text": "这个我已经解决了", "expect_action_not": "unknown"},
+    {"id": "done-ok", "text": "搞定了", "expect_action_not": "unknown"},
+    {"id": "today-tasks", "text": "今天的任务？", "expect_action": "today"},
+    {"id": "today-recap", "text": "我今天干了什么?", "expect_action": "today_recap"},
+    {"id": "person-not-search", "text": "张三的回复如何？", "expect_action": "person"},
+    {"id": "confirm-writes", "text": "确认写入", "expect_action": "task_confirm"},
+    {"id": "workflow-morning", "text": "晨间核对", "expect_mode": "workflow"},
+    {"id": "knowledge-qa", "text": "知识问答 报销制度", "expect_mode": "knowledge"},
+    {"id": "task-mode", "text": "任务模式 汇总风险", "expect_mode": "task"}
+  ]
+}

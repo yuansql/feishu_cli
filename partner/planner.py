@@ -165,9 +165,24 @@ def plan_steps(goal: str, facts: str = "") -> list[dict[str, str | dict[str, str
                 "args": {"path": "."},
             },
         )
+    want_html = any(
+        word in cleaned
+        for word in ("html", "HTML", "本地报告", "本地 html", "工作报告", "生成本地")
+    )
+    want_upload = any(
+        word in cleaned for word in ("上传飞书", "云文档", "写到飞书", "发到飞书")
+    )
+    if not no_write and want_html:
+        steps.append(
+            {
+                "title": f"生成本地 HTML 报告：{cleaned}",
+                "tool": "report_write",
+                "args": {"goal": cleaned},
+            }
+        )
     if not no_write and any(
         word in cleaned for word in ("文档", "周报", "总结", "方案", "复盘")
-    ):
+    ) and (not want_html or want_upload):
         steps.append(
             {
                 "title": f"创建云文档初稿：{cleaned}",

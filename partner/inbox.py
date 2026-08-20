@@ -1,4 +1,4 @@
-"""Local jsonl of messages about 吴梦晨. Source of truth for later digest."""
+"""Local jsonl of messages about the deployer. Source of truth for later digest."""
 
 from __future__ import annotations
 

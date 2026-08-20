@@ -6,7 +6,7 @@ import re
 from typing import Any
 
 from .formatters import (
-    HELP_TEXT,
+    help_text,
     _chat_tokens,
     _items,
     document_markdown,
@@ -40,7 +40,7 @@ from .artifact import (
     observe_document,
     prepare_document_edit,
 )
-from .ids import WEEKLY_QUERY
+from .ids import WEEKLY_QUERY, display_name, identity_hint, identity_ready, config_path
 from .inbox import recent_items
 from .intents import Intent, looks_like_bare_search, parse_intent
 from .lark import run_lark
@@ -109,8 +109,14 @@ def status_text() -> str:
     who_bot = run_lark(["whoami"], as_identity="bot")
     doctor = run_lark(["doctor"], as_identity=None)
     user = who_user.get("onBehalfOf") or {}
+    identity_line = (
+        f"- 伙伴身份：{display_name()}（{config_path()}）"
+        if identity_ready()
+        else f"- 伙伴身份：未配置\n{identity_hint()}"
+    )
     lines = [
         "飞书工作伙伴状态",
+        identity_line,
         f"- 应用：{who_user.get('appId') or who_bot.get('appId')}",
         f"- 用户：{user.get('userName') or who_user.get('identity')} ({user.get('openId') or ''})",
         f"- 用户 token：{who_user.get('tokenStatus')}",
@@ -125,7 +131,10 @@ def status_text() -> str:
 
 def doctor_text() -> str:
     ensure_profile()
-    chunks = [status_text(), "", "能力探针："]
+    chunks = [status_text()]
+    if not identity_ready():
+        chunks.extend(["", "身份闸：FAIL", identity_hint()])
+    chunks.extend(["", "能力探针："])
     now = datetime.now(CN_TZ)
     message_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     message_end = now.replace(hour=23, minute=59, second=59, microsecond=0)
@@ -504,7 +513,7 @@ def create_task_item(summary: str, due: str = "") -> str:
 def analyze_result(query: str) -> tuple[str, list[tuple[str, str]]]:
     """Return (reply, title/url pairs). Several hits → ask which. Never dump search lists."""
     if not query:
-        return HELP_TEXT, []
+        return help_text(), []
     docs = run_lark(
         ["docs", "+search", "--query", query, "--page-size", "5"],
         as_identity="user",
@@ -964,7 +973,7 @@ def _facts_for(intent: Intent) -> str:
     if intent.action == "aily":
         return alignment_text()
     if intent.action == "help":
-        return HELP_TEXT
+        return help_text()
     if intent.action == "today":
         return today_text()
     if intent.action == "brief":
@@ -1008,7 +1017,7 @@ def _facts_for(intent: Intent) -> str:
     query = (intent.query or "").strip()
     if query:
         return analyze_text(query)
-    return HELP_TEXT
+    return help_text()
 
 
 def partner_reply(user_text: str, facts: str, intent: Intent | None = None) -> str:

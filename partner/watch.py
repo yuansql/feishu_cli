@@ -1,4 +1,4 @@
-"""Decide whether a group message is about 吴梦晨, and whether to push it."""
+"""Decide whether a group message is about the deployer, and whether to push it."""
 
 from __future__ import annotations
 

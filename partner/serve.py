@@ -15,7 +15,7 @@ from .ack import ACK_EMOJI, ack_line, should_ack_text
 from .actions import add_reaction, dispatch, send_style_card, send_text
 from .brief import already_pushed, push_brief
 from .events import InboundMessage, extract_card_action, extract_inbound_message, should_reply
-from .ids import BOT_OPEN_ID, P2P_CHAT_ID, USER_OPEN_ID
+from .ids import BOT_OPEN_ID, P2P_CHAT_ID, USER_OPEN_ID, identity_hint, identity_ready, reload_identity
 from .followup import (
     apply_action,
     format_assign_push,
@@ -311,6 +311,17 @@ def _spawn_consume(
 
 
 def serve(timeout: str | None = None, max_events: int = 0) -> int:
+    reload_identity()
+    if not identity_ready():
+        print(identity_hint(), file=sys.stderr)
+        return 2
+    # Import-time copies may be stale after setup; rebind from ids module.
+    from . import ids as _ids
+
+    global USER_OPEN_ID, BOT_OPEN_ID, P2P_CHAT_ID
+    USER_OPEN_ID = _ids.USER_OPEN_ID
+    BOT_OPEN_ID = _ids.BOT_OPEN_ID
+    P2P_CHAT_ID = _ids.P2P_CHAT_ID
     binary = find_lark_cli()
     msg_proc, msg_fd = _spawn_consume(
         binary, "im.message.receive_v1", timeout, max_events

@@ -114,6 +114,13 @@ def _registry() -> dict[str, ToolSpec]:
         confirmation="never",
         expose_mcp=False,
     )
+    out["report_write"] = ToolSpec(
+        name="report_write",
+        description="生成本地 HTML 报告（~/.feishu-partner/reports）",
+        effect="write",
+        confirmation="never",
+        expose_mcp=False,
+    )
     out["summarize"] = ToolSpec(
         name="summarize",
         description="汇总任务材料（内部）",
@@ -307,6 +314,12 @@ def _execute_write(name: str, args: dict[str, str]) -> str:
         from .sandbox import sandbox_run
 
         return sandbox_run(args.get("command") or args.get("query") or "")
+    if name == "report_write":
+        from .report import report_from_goal
+
+        goal = args.get("goal") or args.get("query") or args.get("title") or "工作报告"
+        materials = args.get("materials") or args.get("body") or args.get("content") or ""
+        return report_from_goal(goal, materials)
     raise RuntimeError(f"unknown write tool: {name}")
 
 

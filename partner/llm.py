@@ -205,6 +205,7 @@ def _is_usable_reply(text: str, *, limit: int = 1200) -> bool:
             "内容结构",
             "需要注意",
             "材料是吴梦晨",
+            f"材料是{_owner()}",
             "这样应该可以",
             "再确认一下",
             "材料中第",
@@ -270,9 +271,15 @@ def build_hermes_argv(prompt: str, binary: Path, *, mode: str = "rewrite") -> li
     return argv
 
 
+def _owner() -> str:
+    from .ids import display_name
+
+    return display_name()
+
+
 def _prompt(user_text: str, facts: str) -> str:
     return (
-        "你是吴梦晨在飞书里的工作伙伴。根据【材料】用第一人称（我）写回复，像同事随口说，不要客服腔。\n"
+        f"你是{_owner()}在飞书里的工作伙伴。根据【材料】用第一人称（我）写回复，像同事随口说，不要客服腔。\n"
         "只根据材料，不许编造材料里没有的进度、会议、人名。\n"
         "不要解释你是 AI，不要输出思考过程，不要调用任何工具或命令。\n"
         "只输出给用户看的完整正文，禁止复述本说明、思考步骤或「另外还有」这类收尾残句单独成篇。\n\n"
@@ -327,7 +334,11 @@ def _brief_prompt(facts: str) -> str:
 def accept_polished_brief(original: str, polished: str) -> bool:
     if not _is_usable_reply(polished):
         return False
-    titled = "每日工作简报" in polished or ("吴梦晨" in polished and "简报" in polished)
+    titled = (
+        "每日工作简报" in polished
+        or ("吴梦晨" in polished and "简报" in polished)
+        or (_owner() in polished and "简报" in polished)
+    )
     if not titled:
         return False
     if "待回复" in polished and "待回复" not in original:
@@ -412,7 +423,7 @@ def _partner_prompt(user_text: str, facts: str, *, with_tools: bool) -> str:
             "禁止 FETCH send / write_weekly / write_doc / 任意命令。\n"
         )
     return (
-        "你是吴梦晨在飞书里的工作伙伴。根据【材料】用第一人称（我）写回复，像同事随口说，不要客服腔。\n"
+        f"你是{_owner()}在飞书里的工作伙伴。根据【材料】用第一人称（我）写回复，像同事随口说，不要客服腔。\n"
         "只根据材料，不许编造材料里没有的进度、会议、人名。\n"
         "不要解释你是 AI，不要输出思考过程。\n"
         f"{extra}"
@@ -450,7 +461,7 @@ def rewrite_partner(user_text: str, facts: str, *, timeout: int = 90) -> str:
 
 def _plan_prompt(goal: str, facts: str) -> str:
     return (
-        "你是吴梦晨在飞书里的工作伙伴。把用户目标拆成可执行计划。\n"
+        f"你是{_owner()}在飞书里的工作伙伴。把用户目标拆成可执行计划。\n"
         "只根据【工作上下文】和用户目标，不许编造材料里没有的会议、人名、进度。\n"
         "不要解释你是 AI，不要输出思考过程，不要调用任何工具或命令。\n"
         "输出必须包含这些标题：任务规划、【当前判断】、【执行步骤】、【可直接用的飞书动作】、【需要确认】。\n"
@@ -491,7 +502,7 @@ def draft_doc_edit(
     if os.environ.get("FEISHU_PARTNER_NO_LLM") == "1":
         return ""
     prompt = (
-        "你是吴梦晨的飞书工作伙伴。根据用户要求、目标文档片段和工作事实，"
+        f"你是{_owner()}的飞书工作伙伴。根据用户要求、目标文档片段和工作事实，"
         "起草将写入文档的一小段正文。\n"
         "只输出草稿正文，不解释、不输出标题“草稿”、不调用工具、不声称已经写入。\n"
         "只能使用材料中已有事实，不许编造人名、进度、日期或结果。\n"
@@ -531,10 +542,12 @@ def _looks_like_brief_line(line: str) -> bool:
     head = line.strip()
     if not head:
         return True
+    owner_prefix = f"{_owner()} ·"
     if head.startswith(
         (
             "📋",
             "吴梦晨 ·",
+            owner_prefix,
             "【",
             "- ",
             "一、",
@@ -578,9 +591,10 @@ def _trim_brief_block(block: str) -> str:
 
 def _brief_start(text: str, *, last: bool) -> int:
     blob = text or ""
+    owner_mark = f"{_owner()} ·"
     found = [
         blob.find(mark) if not last else blob.rfind(mark)
-        for mark in ("📋 每日工作简报", "每日工作简报 ·", "吴梦晨 ·")
+        for mark in ("📋 每日工作简报", "每日工作简报 ·", "吴梦晨 ·", owner_mark)
     ]
     hits = [index for index in found if index >= 0]
     if not hits:
@@ -599,7 +613,7 @@ def isolate_brief(text: str) -> str:
 def _brief_candidates(text: str) -> list[str]:
     found: list[str] = []
     blob = text or ""
-    for mark in ("📋 每日工作简报", "每日工作简报 ·", "吴梦晨 ·"):
+    for mark in ("📋 每日工作简报", "每日工作简报 ·", "吴梦晨 ·", f"{_owner()} ·"):
         start = 0
         while True:
             index = blob.find(mark, start)

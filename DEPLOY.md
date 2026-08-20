@@ -39,7 +39,7 @@ Agent 任务落在 `~/.feishu-partner/tasks/`，脱敏轨迹落在 `~/.feishu-pa
 
 ### 本地能力对标（不对接 Aily）
 
-按 `AILY_ALIGNMENT.md` 路线图在本机逐项开发：Multi-Agent、本地沙箱、Workflow DSL、RAG、Webhook、`feishu eval` 等。当前约 **48.9/100**，目标 **≥90/100**。
+按 `AILY_ALIGNMENT.md` 路线图在本机逐项开发：Multi-Agent、本地沙箱、Workflow DSL、RAG、Webhook、`feishu eval` 等。目标 **≥90/100**（以 `feishu aily` 实时分数为准）。
 
 本地验收用例（飞书单聊或 CLI）：
 
@@ -174,7 +174,7 @@ mkdir -p ~/.local/bin
 ln -sf "$(pwd)/bin/feishu" ~/.local/bin/feishu
 ```
 
-确认 `~/.local/bin` 在 `PATH` 里。没有 Python 包要装。
+确认 `~/.local/bin` 在 `PATH` 里。没有 Python 包要装（标准库即可）。
 
 直接跑也可以：
 
@@ -184,40 +184,32 @@ PYTHONPATH="$(pwd)" python3 -m partner doctor
 
 ---
 
-## 4. 配置「这是谁的伙伴」
+## 4. 配置「这是谁的伙伴」（必做）
 
-代码里可能仍有原作者默认 ID。换人部署**必须**改环境变量，否则会监视错人、推错会话。文档里不写真实 `ou_` / `oc_`。
-
-先找机器人单聊 `chat_id`：
+仓库**不再内置**任何人的 `ou_` / `oc_`。别人 `git clone` 后必须先本机写身份，否则会监视错人、推错会话。
 
 ```bash
-lark-cli im +chat-list --types=p2p --as bot
+# 先在飞书里给机器人发一条「你好」，再：
+feishu setup --name 张三
 ```
 
-和机器人发过一条消息后，列表里会出现 `oc_…`。
+会探测 `lark-cli whoami` 与单聊列表，写入 **`~/.feishu-partner/config.json`（本机私有，勿提交 git）**。
 
-写入 `~/.zshrc`（或你的 shell 配置）：
+也可用环境变量覆盖（见 `env.example`），优先级：环境变量 > config.json。
 
-```bash
-export FEISHU_PARTNER_USER_OPEN_ID="ou_你的用户"
-export FEISHU_PARTNER_BOT_OPEN_ID="ou_你的机器人"
-export FEISHU_PARTNER_P2P_CHAT_ID="oc_你和机器人的单聊"
-export FEISHU_PARTNER_USER_NAMES="张三"
-export FEISHU_PARTNER_WEEKLY_QUERY="张三 周报"
-```
-
-`source ~/.zshrc` 后再开新终端。
-
-| 变量 | 作用 |
+| 键 / 变量 | 作用 |
 |------|------|
-| `FEISHU_PARTNER_USER_OPEN_ID` | 判定群里 @的是不是你 |
-| `FEISHU_PARTNER_BOT_OPEN_ID` | 判定 @的是不是机器人（才回答） |
-| `FEISHU_PARTNER_P2P_CHAT_ID` | 「有人找你」推送到这个单聊 |
-| `FEISHU_PARTNER_USER_NAMES` | 正文点名（逗号分隔多个称呼） |
-| `FEISHU_PARTNER_WEEKLY_QUERY` | 搜哪份个人周报 |
+| `user_open_id` / `FEISHU_PARTNER_USER_OPEN_ID` | 判定群里 @的是不是你 |
+| `bot_open_id` / `FEISHU_PARTNER_BOT_OPEN_ID` | 判定 @的是不是机器人（才回答） |
+| `p2p_chat_id` / `FEISHU_PARTNER_P2P_CHAT_ID` | 「有人找你」推送到这个单聊 |
+| `user_names` / `FEISHU_PARTNER_USER_NAMES` | 正文点名（逗号分隔多个称呼） |
+| `weekly_query` / `FEISHU_PARTNER_WEEKLY_QUERY` | 搜哪份个人周报 |
 | `FEISHU_PARTNER_INBOX` | 可选，inbox 文件路径，默认 `~/.feishu-partner/inbox.jsonl` |
 | `FEISHU_PARTNER_NO_LLM` | 设为 `1` 则关闭 Hermes 改写 |
 | `LARK_CLI` / `HERMES_BIN` | 可选，指定二进制路径 |
+
+`feishu doctor` 会先检查身份；未配置会 FAIL 并提示 `feishu setup`。
+`feishu serve` / `feishu serve --install` 在身份未就绪时会直接拒绝。
 
 ---
 

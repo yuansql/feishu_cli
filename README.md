@@ -8,7 +8,21 @@
 
 旧仓 `~/学习/@Agent/agent_feishu`（小飞 + Cloudflare 隧道）不再扩展。
 
-**换人 / 换机器部署**：看 [DEPLOY.md](DEPLOY.md)。
+**别人 `git clone` 就能用**：看 [DEPLOY.md](DEPLOY.md)。仓库**不含**个人 open_id / 单聊 id / App Secret；每人先 `feishu setup --name 你的名字`。
+
+## 最快上手（新机器）
+
+```bash
+git clone <本仓地址> feishu_cli && cd feishu_cli
+ln -sf "$(pwd)/bin/feishu" ~/.local/bin/feishu
+# 装并登录 lark-cli（见 DEPLOY.md）
+# 飞书里给机器人发一句「你好」
+feishu setup --name 你的名字
+feishu doctor
+feishu serve --install
+```
+
+可选环境变量模板：`env.example`。
 
 ## 先确认本机
 
@@ -30,6 +44,7 @@ lark-cli auth login --scope "calendar:calendar.event:read search:docs:read"
 
 | 命令 | 作用 |
 |------|------|
+| `feishu setup --name 名字` | 写入本机身份到 `~/.feishu-partner/config.json`（不进 git） |
 | `feishu status` / `feishu doctor` | 身份、连通、缺权限 |
 | `feishu today` | 日程 + 未完成待办（日程缺权限会明示，不装成功） |
 | `feishu tasks` | 未完成待办 |
@@ -41,7 +56,9 @@ lark-cli auth login --scope "calendar:calendar.event:read search:docs:read"
 | `feishu serve` | 飞书内收消息（WebSocket） |
 | `feishu brief` | 昨天小结 + 今天规划；`--install` 装 09:00 定时，`--push` 推单聊 |
 | `feishu plan <目标>` | CLI 输出计划；飞书内「任务模式/规划」会先观察、动态规划并后台执行 |
-| `feishu rag stats` / `index` / `query` | 本地 RAG 索引与召回 |
+| `feishu report 标题` | 生成本地 HTML 报告到 `~/.feishu-partner/reports/` |
+| `feishu eval` | 本地路由 fixtures + trace 评测 |
+| `feishu versions` | 配置快照 publish / list / diff / rollback |
 | `feishu sandbox` | 查看本地沙箱路径与允许命令 |
 | `feishu workflow` | 列出本地 Workflow 及触发词 |
 | `feishu webhook` | Webhook 触发后台任务（HMAC，默认 127.0.0.1:8766） |
