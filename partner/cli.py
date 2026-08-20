@@ -55,6 +55,7 @@ PARTNER_CMDS = {
     "versions",
     "setup",
     "report",
+    "memory",
 }
 
 
@@ -160,6 +161,9 @@ def main(argv: list[str] | None = None) -> int:
 
     p_versions = sub.add_parser("versions")
     p_versions.add_argument("versions_args", nargs="*", default=[])
+
+    p_memory = sub.add_parser("memory")
+    p_memory.add_argument("memory_args", nargs="*", default=[])
 
     args = parser.parse_args(argv)
     if args.cmd == "status":
@@ -332,6 +336,11 @@ def main(argv: list[str] | None = None) -> int:
         from .versions import versions_text
 
         print(versions_text(getattr(args, "versions_args", []) or []))
+        return 0
+    if args.cmd == "memory":
+        from .memory import memory_cli
+
+        print(memory_cli(getattr(args, "memory_args", []) or []))
         return 0
     print(help_text())
     return 0

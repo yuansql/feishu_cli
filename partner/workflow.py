@@ -19,6 +19,8 @@ class WorkflowStep:
     title: str
     tool: str
     args: dict[str, str]
+    when: str = ""
+    unless: str = ""
 
 
 @dataclass(frozen=True)
@@ -58,6 +60,8 @@ def _parse_step(raw: dict[str, Any]) -> WorkflowStep | None:
         title=str(raw.get("title") or tool).strip()[:160],
         tool=tool,
         args=args,
+        when=str(raw.get("when") or "").strip(),
+        unless=str(raw.get("unless") or "").strip(),
     )
 
 
@@ -165,6 +169,35 @@ def _render_args(args: dict[str, str], *, goal: str) -> dict[str, str]:
     return out
 
 
+def _haystack(goal: str, executed: list[dict[str, Any]]) -> str:
+    parts = [goal or ""]
+    for row in executed:
+        parts.append(str(row.get("result") or ""))
+        parts.append(str(row.get("error") or ""))
+    return "\n".join(parts)
+
+
+def _pattern_hit(pattern: str, text: str) -> bool:
+    raw = (pattern or "").strip()
+    if not raw:
+        return False
+    blob = text or ""
+    for piece in re.split(r"[|｜]", raw):
+        piece = piece.strip()
+        if piece and piece in blob:
+            return True
+    return False
+
+
+def _should_run_step(step: WorkflowStep, *, goal: str, executed: list[dict[str, Any]]) -> bool:
+    hay = _haystack(goal, executed)
+    if step.when and not _pattern_hit(step.when, hay):
+        return False
+    if step.unless and _pattern_hit(step.unless, hay):
+        return False
+    return True
+
+
 def _finalize_summarize(*, goal: str, steps: list[dict[str, Any]]) -> str:
     lines = [f"Workflow 完成：{goal}", "", "【步骤结果】"]
     for row in steps:
@@ -197,6 +230,18 @@ def run_workflow(
     emit_trace(trace_id, "workflow.started", workflow_id=wf.id, goal=cleaned_goal)
     executed: list[dict[str, Any]] = []
     for index, step in enumerate(wf.steps, 1):
+        if not _should_run_step(step, goal=cleaned_goal, executed=executed):
+            row = {
+                "index": index,
+                "title": step.title,
+                "tool": step.tool,
+                "status": "skipped",
+                "result": f"条件未满足（when={step.when or '-'} unless={step.unless or '-'}）",
+                "error": "",
+            }
+            executed.append(row)
+            emit_trace(trace_id, "workflow.step", workflow_id=wf.id, **row)
+            continue
         if step.tool not in read_tools():
             row = {
                 "index": index,

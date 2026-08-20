@@ -13,6 +13,28 @@
       "finalize": "summarize"
     },
     {
+      "id": "mention_followup",
+      "name": "点名跟进",
+      "description": "仅当目标含找我/催办时才读 inbox，否则跳过",
+      "triggers": ["点名跟进", "workflow:mention_followup"],
+      "steps": [
+        {"title": "读取今日上下文", "tool": "today", "args": {}},
+        {
+          "title": "读取谁找我",
+          "tool": "inbox",
+          "args": {},
+          "when": "找我|催办|谁找"
+        },
+        {
+          "title": "读取未完成待办",
+          "tool": "tasks",
+          "args": {},
+          "unless": "只要找我|只看找我"
+        }
+      ],
+      "finalize": "summarize"
+    },
+    {
       "id": "meeting_prep",
       "name": "会议准备",
       "description": "纪要 + 今日日程 + 相关材料",

@@ -198,8 +198,14 @@ def enrich_facts_for_plan(
     task_id: str = "",
 ) -> tuple[str, MultiAgentResult]:
     """Append multi-agent brief to planner facts."""
-    result = coordinate(goal, facts, task_id=task_id)
-    merged = (facts or "").strip()
+    from .memory import memory_context_for_goal
+
+    base = (facts or "").strip()
+    mem = memory_context_for_goal(goal)
+    if mem:
+        base = f"{base}\n\n{mem}".strip() if base else mem
+    result = coordinate(goal, base, task_id=task_id)
+    merged = base
     context = result.as_plan_context()
     if merged:
         merged = f"{merged}\n\n{context}"

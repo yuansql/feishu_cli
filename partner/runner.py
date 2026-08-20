@@ -669,6 +669,28 @@ def _refresh_task_status(task: dict[str, Any]) -> None:
         task["status"] = "pending"
 
 
+def _finalize_if_done(task: dict[str, Any]) -> bool:
+    """Stamp completed_at + experience once. True if newly finalized."""
+    if str(task.get("status") or "") != "done" or task.get("completed_at"):
+        return False
+    task["completed_at"] = _now_iso()
+    task_id = str(task.get("id") or "")
+    emit_trace(task_id, "task.completed", plan_version=task.get("plan_version"))
+    from .memory import note_task_outcome
+
+    last = ""
+    for step in reversed(task.get("steps") or []):
+        if not isinstance(step, dict):
+            continue
+        if str(step.get("tool") or "") == "summarize" and str(step.get("result") or "").strip():
+            last = str(step.get("result") or "")[:200]
+            break
+        if str(step.get("status") or "") == "done" and not last:
+            last = str(step.get("result") or "")[:200]
+    note_task_outcome(str(task.get("goal") or ""), "done", summary=last)
+    return True
+
+
 def run_next(task_id: str, *, confirm_write: bool = False) -> str:
     task = load_task(task_id)
     if not task:
@@ -688,9 +710,7 @@ def run_next(task_id: str, *, confirm_write: bool = False) -> str:
         index = _pending_index(task)
     if index is None:
         _refresh_task_status(task)
-        if str(task.get("status") or "") == "done" and not task.get("completed_at"):
-            task["completed_at"] = _now_iso()
-            emit_trace(task_id, "task.completed", plan_version=task.get("plan_version"))
+        _finalize_if_done(task)
         save_task(task)
         if str(task.get("status") or "") == "done":
             return format_status(task) + "\n\n任务已完成。"
@@ -713,9 +733,7 @@ def run_next(task_id: str, *, confirm_write: bool = False) -> str:
         planned_now = _materialize_agent_plan(task)
         task = load_task(task_id) or task
     _refresh_task_status(task)
-    if str(task.get("status") or "") == "done" and not task.get("completed_at"):
-        task["completed_at"] = _now_iso()
-        emit_trace(task_id, "task.completed", plan_version=task.get("plan_version"))
+    _finalize_if_done(task)
     save_task(task)
 
     visible = [
@@ -761,9 +779,7 @@ def run_all(task_id: str, *, stop_on_blocked: bool = True) -> str:
                 continue
         if index is None:
             _refresh_task_status(task)
-            if str(task.get("status") or "") == "done" and not task.get("completed_at"):
-                task["completed_at"] = _now_iso()
-                emit_trace(task_id, "task.completed", plan_version=task.get("plan_version"))
+            _finalize_if_done(task)
             save_task(task)
             break
         msg = run_next(task_id)

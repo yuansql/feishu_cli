@@ -102,6 +102,9 @@ def setup_text(*, name: str = "", weekly_query: str = "", force: bool = False) -
 
     reload_identity()
     ensure_profile()
+    from .memory import ensure_agents_md
+
+    agents = ensure_agents_md()
     return (
         "已写入本地身份配置（勿提交 git）：\n"
         f"- 文件：{path}\n"
@@ -109,7 +112,8 @@ def setup_text(*, name: str = "", weekly_query: str = "", force: bool = False) -
         f"- 机器人：{bot_oid}\n"
         f"- 单聊：{p2p}\n"
         f"- 称呼：{display}\n"
-        f"- 周报检索：{weekly}\n\n"
+        f"- 周报检索：{weekly}\n"
+        f"- Agents.md：{agents}\n\n"
         "下一步：feishu doctor && feishu serve --install\n"
         "若 serve 已在跑：launchctl kickstart -k gui/$(id -u)/com.feishu.partner.serve"
     )

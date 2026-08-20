@@ -57,6 +57,7 @@ lark-cli auth login --scope "calendar:calendar.event:read search:docs:read"
 | `feishu brief` | 昨天小结 + 今天规划；`--install` 装 09:00 定时，`--push` 推单聊 |
 | `feishu plan <目标>` | CLI 输出计划；飞书内「任务模式/规划」会先观察、动态规划并后台执行 |
 | `feishu report 标题` | 生成本地 HTML 报告到 `~/.feishu-partner/reports/` |
+| `feishu memory` | 本地 Agents.md / 经验档案（`note` / `init` / `context`） |
 | `feishu eval` | 本地路由 fixtures + trace 评测 |
 | `feishu versions` | 配置快照 publish / list / diff / rollback |
 | `feishu sandbox` | 查看本地沙箱路径与允许命令 |
