@@ -26,7 +26,7 @@ class KnowledgeTests(unittest.TestCase):
 
     def test_search_prioritized_tags_source(self) -> None:
         with patch(
-            "partner.actions.search_text",
+            "partner.actions.docs_search_text",
             return_value="【文档】\n- 周报",
         ) as search:
             out = search_prioritized("周报")
@@ -45,7 +45,7 @@ class WriteBackTests(unittest.TestCase):
         )
 
     def test_plan_steps_include_write_confirm(self) -> None:
-        steps = plan_steps("A6 上线")
+        steps = plan_steps("创建待办并写入跟进账：A6 上线")
         tools = [s["tool"] for s in steps]
         self.assertIn("followup_add", tools)
         self.assertIn("task_create", tools)
@@ -58,7 +58,8 @@ class WriteBackTests(unittest.TestCase):
         self.assertTrue(doc_step.get("requires_confirm"))
 
     def test_run_all_stops_at_write_confirm(self) -> None:
-        task = create_task("A6", "oc_x", plan_steps("A6"))
+        goal = "创建待办并写入跟进账：A6"
+        task = create_task(goal, "oc_x", plan_steps(goal))
         with patch("partner.runner.run_tool", side_effect=lambda tool, _a: f"ok:{tool}"):
             msg = run_all(task["id"])
         loaded = load_task(task["id"])
@@ -67,7 +68,8 @@ class WriteBackTests(unittest.TestCase):
         self.assertIn("确认写入", msg)
 
     def test_confirm_writes_followup_and_task(self) -> None:
-        task = create_task("A6 上线", "oc_x", plan_steps("A6 上线"))
+        goal = "创建待办并写入跟进账：A6 上线"
+        task = create_task(goal, "oc_x", plan_steps(goal))
         with patch("partner.runner.run_tool", side_effect=lambda tool, _a: f"ok:{tool}"):
             run_all(task["id"])
         with patch(

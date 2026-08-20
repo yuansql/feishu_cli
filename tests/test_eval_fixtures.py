@@ -17,6 +17,9 @@ class EvalIntentFixtures(unittest.TestCase):
     def test_today_tasks_not_search(self) -> None:
         self.assertEqual(parse_intent("今天的任务？").action, "today")
 
+    def test_today_recap_not_unknown(self) -> None:
+        self.assertEqual(parse_intent("我今天干了什么?").action, "today_recap")
+
     def test_person_not_search(self) -> None:
         self.assertEqual(parse_intent("张三的回复如何？").action, "person")
 

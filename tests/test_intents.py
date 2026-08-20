@@ -18,6 +18,23 @@ class ParseIntentTests(unittest.TestCase):
             intent = parse_intent(text)
             self.assertEqual(intent.action, "today", text)
 
+    def test_today_recap_questions(self) -> None:
+        for text in (
+            "我今天干了什么?",
+            "我今天做了什么？",
+            "今天都忙了啥",
+            "今日完成了哪些工作",
+            "我今天干啥了",
+            "读一下今天的消息再看看",
+            "翻一下今天聊天，看看我做了什么",
+        ):
+            self.assertEqual(parse_intent(text).action, "today_recap", text)
+        self.assertEqual(parse_intent("今天").action, "today")
+        self.assertNotEqual(
+            parse_intent("今天这个文档做了什么修改").action,
+            "today_recap",
+        )
+
     def test_brief_aliases(self) -> None:
         for text in ("早报", "简报", "昨天小结", "今日规划"):
             self.assertEqual(parse_intent(text).action, "brief", text)

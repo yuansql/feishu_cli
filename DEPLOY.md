@@ -2,8 +2,7 @@
 
 给**另一台 Mac / 另一个飞书账号**把本项目跑起来用。照着做即可，不必改业务代码。
 
-本仓是薄编排：手是官方 [`lark-cli`](https://github.com/larksuite/cli)，脑是本仓 `partner/`。  
-**不是** 飞书 aily / 豆包企业版，没有 AI 额度、智能体工作台、多维表格 AI 字段。
+本仓是**完全本地独立**的飞书办公智能体：手是官方 [`lark-cli`](https://github.com/larksuite/cli)，本地运行时是 `partner/`。**不对接飞书 Aily 平台**；Aily 级能力在本仓内单独开发，路线图见 [AILY_ALIGNMENT.md](AILY_ALIGNMENT.md)。
 
 ## 部署完能做什么
 
@@ -15,14 +14,15 @@
 | 监视 @你 | **仅**机器人所在群：@你 / 点名指派 → 记 inbox，该推的推单聊；说「谁找我」 |
 | 周报 | 按人名搜个人周报文档再改写成【工作内容】【重点项目】【下周】 |
 | 每天 09:00 简报 | **必装** LaunchAgent：昨天小结 + 今天规划，推到部署者与机器人的单聊 |
-| 任务模式 | 单聊「规划/拆解 …」→ 拉飞书材料 → 汇总 → 「确认写入」同步跟进账/待办/云文档；「下一步」「任务进度」续跑 |
+| 今天工作回顾 | 「我今天干了什么 / 读今天消息」→ 分页读取当天跨会话消息 → 按证据归纳已做/推进中/待确认；「继续确认」沿用上下文 |
+| 任务模式 | 单聊「任务模式/规划/拆解 …」→ 后台先观察 → 动态规划 → 执行/验真/重规划；支持进度、取消、恢复和确认写入 |
 | 现有文档续改 | 贴链接说「写到…下面」→ 先看草稿 →「写进去」原地更新并回读；「多一点」续改同一 block |
 
 电脑睡觉或没开 `feishu serve` 时，飞书里**不会回、也不会监视**。
 
 ### 任务模式与知识源（可选）
 
-计划任务落在 `~/.feishu-partner/tasks/`；文档工件任务落在 `~/.feishu-partner/artifacts.json`。写操作（跟进账、飞书待办、云文档）**必须**用户明确说「确认写入」或「写进去」后才执行。
+Agent 任务落在 `~/.feishu-partner/tasks/`，脱敏轨迹落在 `~/.feishu-partner/traces/`；文档工件任务落在 `~/.feishu-partner/artifacts.json`；当天消息回顾的证据与结论只在 `~/.feishu-partner/session.json` 保留 12 小时。写操作（跟进账、飞书待办、云文档）**必须**用户明确说「确认写入」或「写进去」后才执行。
 
 知识源优先级（默认：云文档 → 知识库空间）可在 `~/.feishu-partner/knowledge.json` 配置，例如：
 
@@ -37,7 +37,22 @@
 
 不改此文件则使用内置默认。
 
+### 本地能力对标（不对接 Aily）
+
+按 `AILY_ALIGNMENT.md` 路线图在本机逐项开发：Multi-Agent、本地沙箱、Workflow DSL、RAG、Webhook、`feishu eval` 等。当前约 **48.9/100**，目标 **≥90/100**。
+
+本地验收用例（飞书单聊或 CLI）：
+
+- 「我今天干了什么」：读取消息证据，区分已完成/推进中/待确认
+- 「任务模式：汇总风险，不写入」：后台运行、可查进度、无写步骤
+- 「把第 2 项写入飞书待办」：先确认，创建后回读
+- 人为缺 scope：必须明示权限，不得伪造成功
+
+可选：`feishu mcp-http` 供 Cursor/Hermes 等外部 Agent 调用只读飞书工具，**不是** Aily 桥接。
+
 ## 不要做什么
+
+- **不要对接飞书 Aily**（API、控制台绑定、以接入 Aily 作为达标路径）
 
 - 不要把 **App Secret**、OAuth token 写进仓库或发给别人
 - 不要把 Hermes `--yolo` 接到群消息（本仓禁止）
@@ -55,9 +70,14 @@
     ▼
 本机  feishu serve
     │  消费 im.message.receive_v1 + card.action.trigger
-    ├─ 对机器人说话 → 意图路由 → lark-cli（user 读、bot 回）
+    ├─ 简单请求 → 意图路由 → lark-cli（user 读、bot 回）
+    ├─ 任务模式 → 持久队列 → 独立 worker → 动态规划/验真/通知
     └─ 关于部署者的消息（仅机器人所在群）→ ~/.feishu-partner/inbox.jsonl
          └─ 该推则推到机器人单聊
+
+可选 MCP HTTP（外部 Agent 扩展，非 Aily）
+    ▼
+feishu mcp-http（只读 allowlist）→ 本机 lark-cli / 业务记忆
 ```
 
 ## 环境要求
@@ -118,7 +138,7 @@ lark-cli config init --new
 用户身份授权（浏览器，**本人点**，不能代登）：
 
 ```bash
-lark-cli auth login --scope "calendar:calendar.event:read search:docs:read task:task:read wiki:space:read wiki:node:read im:chat:read im:message docs:document.content:read docx:document:readonly minutes:minutes.search:read approval:task:read"
+lark-cli auth login --scope "calendar:calendar.event:read search:docs:read search:message task:task:read wiki:space:read wiki:node:read im:chat:read im:message docs:document.content:read docx:document:readonly minutes:minutes.search:read approval:task:read"
 ```
 
 缺哪条以 `feishu doctor` 打印为准，再补：
@@ -210,8 +230,8 @@ feishu tasks
 python3 -m unittest discover -s tests -v
 ```
 
-`doctor` 里日程 / 文档 / 待办 / 收消息应为 OK。会议纪要、审批缺权限会明示，按提示补，不要改代码假装成功。  
-**不需要** `search:message`（本仓已不做跨群消息搜索）。
+`doctor` 里日程 / 文档 / 待办 / 收消息 / 消息回顾应为 OK。会议纪要、审批缺权限会明示，按提示补，不要改代码假装成功。
+`search:message` 用于用户主动发起的「我今天干了什么 / 读今天消息」跨会话回顾；缺少该 scope 时必须明示授权失败，不得退回规划卡冒充。
 
 飞书搜索你的机器人名称，打开单聊，本机另开一个终端：
 
@@ -219,7 +239,7 @@ python3 -m unittest discover -s tests -v
 feishu serve
 ```
 
-单聊发「帮助」「今天」。有回复才算部署成功。
+单聊依次发「帮助」「今天」「我今天干了什么」。前两条验证帮助/规划卡，最后一条必须返回消息证据回顾而不是规划卡。
 
 **09:00 简报定时必须装上**（不能只写在文档里）：
 

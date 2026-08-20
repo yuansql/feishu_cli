@@ -55,7 +55,7 @@ def search_prioritized(query: str) -> str:
     q = (query or "").strip()
     if not q:
         return "请给出搜索关键词。"
-    from .actions import search_text
+    from .actions import docs_search_text
     from .formatters import format_wiki_spaces
     from .lark import run_lark
 
@@ -64,7 +64,7 @@ def search_prioritized(query: str) -> str:
         name = str(src.get("name") or src.get("type") or "source")
         kind = str(src.get("type") or "docs_search")
         if kind == "docs_search":
-            body = search_text(q)
+            body = docs_search_text(q)
             if not _failed(body):
                 return f"【知识源·{name}】\n{body}"
             errors.append(body)
@@ -80,3 +80,44 @@ def search_prioritized(query: str) -> str:
     if errors:
         return errors[0]
     return "Configured knowledge sources returned nothing."
+
+
+def knowledge_answer(query: str, *, chat_id: str = "") -> str:
+    """Knowledge Q&A: local RAG recall first, then prioritized online sources."""
+    q = (query or "").strip()
+    if not q:
+        return "请给出要问的知识问题或关键词。"
+    if os.environ.get("FEISHU_PARTNER_NO_RAG") != "1":
+        from .rag import rag_answer
+
+        local = rag_answer(q)
+        if local and "本地索引未命中" not in local:
+            if chat_id:
+                from .session import save_turn
+
+                save_turn(chat_id, kind="knowledge", query=q, action="knowledge", pairs=[])
+            return local
+    body = search_prioritized(q)
+    if _failed(body):
+        return body
+    from .actions import analyze_text
+
+    if "http" in body or "feishu.cn" in body:
+        analyzed = analyze_text(q)
+        if analyzed and not _failed(analyzed):
+            if chat_id:
+                from .session import save_turn
+
+                save_turn(
+                    chat_id,
+                    kind="knowledge",
+                    query=q,
+                    action="knowledge",
+                    pairs=[],
+                )
+            return analyzed
+    if chat_id:
+        from .session import save_turn
+
+        save_turn(chat_id, kind="knowledge", query=q, action="knowledge", pairs=[])
+    return body

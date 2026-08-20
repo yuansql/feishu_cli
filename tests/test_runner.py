@@ -11,15 +11,19 @@ from partner.intents import parse_intent
 from partner.planner import plan_steps
 from partner.runner import (
     active_task_for_chat,
+    cancel_task,
     continue_task,
     create_task,
     format_status,
     load_task,
     run_all,
     run_next,
+    save_task,
     start_task,
     tasks_dir,
+    worker_once,
 )
+from partner.trace import read_traces
 
 
 class PlanStepsTests(unittest.TestCase):
@@ -29,13 +33,28 @@ class PlanStepsTests(unittest.TestCase):
         self.assertIn("today", tools)
         self.assertIn("tasks", tools)
         self.assertIn("summarize", tools)
-        self.assertIn("followup_add", tools)
-        self.assertIn("task_create", tools)
+        self.assertNotIn("followup_add", tools)
+        self.assertNotIn("task_create", tools)
         self.assertTrue(any(s["tool"] == "search" for s in steps))
 
     def test_meeting_goal_adds_minutes(self) -> None:
         tools = [s["tool"] for s in plan_steps("整理会议纪要和待办")]
         self.assertIn("minutes", tools)
+
+    def test_explicit_write_goal_adds_confirmed_write_tools(self) -> None:
+        tools = [
+            step["tool"]
+            for step in plan_steps("创建待办并写入跟进账：A6 上线")
+        ]
+        self.assertIn("followup_add", tools)
+        self.assertIn("task_create", tools)
+
+    def test_no_write_goal_never_adds_writes(self) -> None:
+        tools = [
+            step["tool"]
+            for step in plan_steps("汇总今天待办，不写入任何内容")
+        ]
+        self.assertFalse({"followup_add", "task_create", "docs_create"} & set(tools))
 
 
 class TaskPersistenceTests(unittest.TestCase):
@@ -112,6 +131,84 @@ class TaskExecutionTests(unittest.TestCase):
         self.assertIn(loaded["status"], {"done", "running"})
 
 
+class AgentRuntimeTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        os.environ["FEISHU_PARTNER_TASKS_DIR"] = os.path.join(self.tmp.name, "tasks")
+        os.environ["FEISHU_PARTNER_TRACES_DIR"] = os.path.join(self.tmp.name, "traces")
+        os.environ["FEISHU_PARTNER_DISABLE_NOTIFICATIONS"] = "1"
+        os.environ["FEISHU_PARTNER_NO_LLM"] = "1"
+
+    def tearDown(self) -> None:
+        os.environ.pop("FEISHU_PARTNER_DISABLE_NOTIFICATIONS", None)
+        os.environ.pop("FEISHU_PARTNER_NO_LLM", None)
+
+    def test_background_task_observes_then_plans(self) -> None:
+        task = create_task(
+            "A6 上线",
+            "oc_agent",
+            [{"title": "观察待办", "tool": "tasks", "args": {}}],
+            mode="agent",
+            background=True,
+        )
+        planned = [{"title": "汇总验收", "tool": "summarize", "args": {}}]
+        with (
+            patch("partner.runner.run_tool", return_value="A6 已提测"),
+            patch("partner.runner.agent_plan_steps", return_value=planned),
+        ):
+            self.assertTrue(worker_once(notify=False))
+        loaded = load_task(task["id"])
+        assert loaded is not None
+        self.assertEqual(loaded["status"], "done")
+        self.assertEqual(loaded["phase"], "execute")
+        self.assertEqual(loaded["plan_version"], 1)
+        self.assertIn("multi_agent", loaded)
+        self.assertIn("researcher", loaded["multi_agent"])
+        self.assertIn("A6 已提测", loaded["steps"][-1]["result"])
+        events = [row["event"] for row in read_traces(task["id"])]
+        self.assertIn("multi_agent.coordinated", events)
+        self.assertIn("plan.created", events)
+        self.assertIn("task.completed", events)
+
+    def test_failed_step_replans_from_failure_evidence(self) -> None:
+        task = create_task(
+            "整理 A6",
+            "oc_agent",
+            [{"title": "查资料", "tool": "search", "args": {"query": "A6"}}],
+            mode="agent",
+        )
+        task["phase"] = "execute"
+        save_task(task)
+        planned = [{"title": "汇总已知事实", "tool": "summarize", "args": {}}]
+        with (
+            patch("partner.runner.run_tool", return_value="unexpected upstream failure"),
+            patch("partner.runner.agent_plan_steps", return_value=planned),
+        ):
+            run_all(task["id"])
+        loaded = load_task(task["id"])
+        assert loaded is not None
+        self.assertEqual(loaded["status"], "done")
+        self.assertEqual(loaded["replan_count"], 1)
+        self.assertEqual(loaded["plan_version"], 1)
+        self.assertEqual(loaded["steps"][0]["status"], "superseded")
+
+    def test_cancelled_background_task_is_not_claimed(self) -> None:
+        task = create_task(
+            "不再执行",
+            "oc_cancel",
+            [{"title": "读待办", "tool": "tasks", "args": {}}],
+            mode="agent",
+            background=True,
+        )
+        text = cancel_task("oc_cancel")
+        self.assertIn("已取消", text)
+        loaded = load_task(task["id"])
+        assert loaded is not None
+        self.assertEqual(loaded["status"], "cancelled")
+        self.assertFalse(worker_once(notify=False))
+
+
 class TaskIntentTests(unittest.TestCase):
     def test_task_status_intent(self) -> None:
         self.assertEqual(parse_intent("任务进度").action, "task_status")
@@ -120,6 +217,12 @@ class TaskIntentTests(unittest.TestCase):
     def test_task_continue_intent(self) -> None:
         self.assertEqual(parse_intent("下一步").action, "task_continue")
         self.assertEqual(parse_intent("继续执行").action, "task_continue")
+
+    def test_task_mode_and_cancel_intents(self) -> None:
+        intent = parse_intent("任务模式 调研 A6 风险")
+        self.assertEqual(intent.action, "plan")
+        self.assertEqual(intent.query, "调研 A6 风险")
+        self.assertEqual(parse_intent("取消任务").action, "task_cancel")
 
 
 class DispatchTaskTests(unittest.TestCase):

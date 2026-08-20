@@ -1,0 +1,39 @@
+{
+  "workflows": [
+    {
+      "id": "morning_checkin",
+      "name": "晨间核对",
+      "description": "today + tasks + inbox，汇总开工状态",
+      "triggers": ["晨间核对", "开工检查", "workflow:morning_checkin"],
+      "steps": [
+        {"title": "读取今日上下文", "tool": "today", "args": {}},
+        {"title": "读取未完成待办", "tool": "tasks", "args": {}},
+        {"title": "读取谁找我", "tool": "inbox", "args": {}}
+      ],
+      "finalize": "summarize"
+    },
+    {
+      "id": "meeting_prep",
+      "name": "会议准备",
+      "description": "纪要 + 今日日程 + 相关材料",
+      "triggers": ["会议准备", "workflow:meeting_prep"],
+      "steps": [
+        {"title": "读取最近会议纪要", "tool": "minutes", "args": {}},
+        {"title": "读取今日安排", "tool": "today", "args": {}},
+        {"title": "搜索相关材料", "tool": "search", "args": {"query": "{keyword}"}}
+      ],
+      "finalize": "summarize"
+    },
+    {
+      "id": "approval_sweep",
+      "name": "审批清扫",
+      "description": "待审批 + 待办核对",
+      "triggers": ["审批清扫", "workflow:approval_sweep"],
+      "steps": [
+        {"title": "读取待办审批", "tool": "approval", "args": {}},
+        {"title": "读取未完成待办", "tool": "tasks", "args": {}}
+      ],
+      "finalize": "summarize"
+    }
+  ]
+}

@@ -16,11 +16,12 @@ class FeishuMcpTests(unittest.TestCase):
         self.assertIn("feishu_today", names)
         self.assertIn("feishu_search", names)
         self.assertIn("feishu_person", names)
+        self.assertIn("feishu_parity_probe", names)
         self.assertNotIn("feishu_send", names)
         self.assertNotIn("feishu_write_weekly", names)
 
     def test_call_today(self) -> None:
-        with patch("partner.mcp_server._facts_for", return_value="日程：A6 提测"):
+        with patch("partner.mcp_server.call_mcp_tool", return_value="日程：A6 提测"):
             resp = handle(
                 {
                     "jsonrpc": "2.0",

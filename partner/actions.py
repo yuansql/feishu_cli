@@ -60,7 +60,15 @@ from .watch import format_inbox_digest
 from .resolved import ensure_pending_snapshot, resolve_text
 from .session import load_turn, looks_like_followup, pick_index, save_turn
 from .planner import plan_text
-from .runner import active_task_for_chat, confirm_writes, continue_task, start_task, status_task
+from .recap import looks_like_recap_followup, today_recap
+from .runner import (
+    active_task_for_chat,
+    cancel_task,
+    confirm_writes,
+    continue_task,
+    start_task,
+    status_task,
+)
 
 CN_TZ = timezone(timedelta(hours=8))
 
@@ -118,12 +126,32 @@ def status_text() -> str:
 def doctor_text() -> str:
     ensure_profile()
     chunks = [status_text(), "", "能力探针："]
+    now = datetime.now(CN_TZ)
+    message_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    message_end = now.replace(hour=23, minute=59, second=59, microsecond=0)
     probes = [
         ("待办", ["task", "+get-my-tasks", "--complete=false", "--page-limit", "1"], "user"),
         ("日程", ["calendar", "+agenda"], "user"),
         ("文档搜索", ["docs", "+search", "--query", "test", "--page-size", "1"], "user"),
         ("知识库", ["wiki", "+space-list"], "user"),
         ("会话", ["im", "+chat-list"], "user"),
+        (
+            "消息回顾",
+            [
+                "im",
+                "+messages-search",
+                "--query",
+                "",
+                "--start",
+                message_start.isoformat(),
+                "--end",
+                message_end.isoformat(),
+                "--page-size",
+                "1",
+                "--no-reactions",
+            ],
+            "user",
+        ),
         ("会议纪要", ["minutes", "+search", "--participant-ids", "me", "--page-size", "1"], "user"),
         ("审批", ["approval", "tasks", "query", "--topic", "1", "--page-size", "1"], "user"),
         (
@@ -532,6 +560,16 @@ def approval_text() -> str:
         as_identity="user",
     )
     return format_approvals(payload)
+
+
+def docs_search_text(query: str) -> str:
+    if not query:
+        return "请给出关键词，例如：搜 周报"
+    payload = run_lark(
+        ["docs", "+search", "--query", query, "--page-size", "8"],
+        as_identity="user",
+    )
+    return format_docs_search(payload, query=query)
 
 
 def search_text(query: str) -> str:
@@ -1036,6 +1074,30 @@ def _task_done_reply_suffix(raw: str) -> str:
     return re.sub(r"\s+", " ", matched.group(1)).strip(" ：:，,")
 
 
+def _today_recap_reply(
+    chat_id: str,
+    asked: str,
+    *,
+    previous: dict[str, Any] | None = None,
+    refresh: bool = True,
+) -> str:
+    recap = today_recap(
+        asked,
+        previous_context=str((previous or {}).get("context") or ""),
+        refresh=refresh,
+    )
+    if chat_id:
+        save_turn(
+            chat_id,
+            kind="action",
+            query=str((previous or {}).get("query") or asked),
+            action="today_recap",
+            context=recap.context,
+            result=recap.text,
+        )
+    return recap.text
+
+
 def dispatch(
     intent: Intent,
     *,
@@ -1064,6 +1126,11 @@ def dispatch(
     if intent.action == "resolve":
         ensure_pending_snapshot()
         return resolve_text(intent.query or user_text)
+    if intent.action == "today_recap":
+        return _today_recap_reply(
+            chat_id,
+            asked,
+        )
     if (
         intent.action == "write_doc"
         and chat_id
@@ -1081,7 +1148,7 @@ def dispatch(
         goal = (intent.query or asked).strip()
         # IM 单聊走 TaskRunner；CLI / force_facts 仍出文本计划（不依赖 LLM）
         if chat_id and goal and not force_facts:
-            return start_task(goal, chat_id)
+            return start_task(goal, chat_id, background=True)
         return plan_text(goal, today_text(), allow_llm=not force_facts)
     if intent.action == "task_continue":
         return continue_task(chat_id)
@@ -1089,9 +1156,32 @@ def dispatch(
         return status_task(chat_id)
     if intent.action == "task_confirm":
         return confirm_writes(chat_id)
+    if intent.action == "task_cancel":
+        return cancel_task(chat_id)
+    from .mode_router import route_request
+    from .workflow import run_workflow
+
+    route = route_request(asked, intent)
+    if route.mode == "workflow" and route.workflow_id and not force_facts:
+        return run_workflow(route.workflow_id, goal=asked, chat_id=chat_id)
+    if route.mode == "knowledge" and route.query and not force_facts:
+        from .knowledge import knowledge_answer
+
+        return knowledge_answer(route.query, chat_id=chat_id)
     prev = load_turn(chat_id) if chat_id else None
     if chat_id and asked.strip() == "继续" and active_task_for_chat(chat_id):
         return continue_task(chat_id)
+    if (
+        prev
+        and prev.get("action") == "today_recap"
+        and looks_like_recap_followup(asked)
+    ):
+        return _today_recap_reply(
+            chat_id,
+            asked,
+            previous=prev,
+            refresh=False,
+        )
     if intent.action == "task_done":
         reply = complete_task_text(
             intent.query,
@@ -1138,6 +1228,11 @@ def dispatch(
         refined = classify_intent(asked)
         if refined is not None and refined.action not in {"unknown", ""}:
             intent = refined
+    if intent.action == "today_recap":
+        return _today_recap_reply(
+            chat_id,
+            asked,
+        )
     if intent.action == "unknown":
         if not looks_like_bare_search(asked):
             return _unknown_nudge(prev)

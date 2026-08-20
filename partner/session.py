@@ -12,6 +12,7 @@ from typing import Any
 CN_TZ = timezone(timedelta(hours=8))
 _DEFAULT = Path.home() / ".feishu-partner" / "session.json"
 _TTL = timedelta(hours=2)
+_RECAP_TTL = timedelta(hours=12)
 _FOLLOW = (
     "详细",
     "展开",
@@ -78,7 +79,8 @@ def load_turn(chat_id: str) -> dict[str, Any] | None:
         return None
     if when.tzinfo is None:
         when = when.replace(tzinfo=CN_TZ)
-    if datetime.now(CN_TZ) - when.astimezone(CN_TZ) > _TTL:
+    ttl = _RECAP_TTL if row.get("action") == "today_recap" else _TTL
+    if datetime.now(CN_TZ) - when.astimezone(CN_TZ) > ttl:
         return None
     return row
 
@@ -91,6 +93,8 @@ def save_turn(
     action: str = "",
     pairs: list[tuple[str, str]] | list[list[str]] | None = None,
     items: list[dict[str, Any]] | None = None,
+    context: str = "",
+    result: str = "",
 ) -> None:
     cid = (chat_id or "").strip()
     if not cid:
@@ -124,5 +128,7 @@ def save_turn(
         "action": action,
         "pairs": clean_pairs,
         "items": clean_items,
+        "context": str(context or "")[:24000],
+        "result": str(result or "")[:4000],
     }
     path.write_text(json.dumps(blob, ensure_ascii=False, indent=2), encoding="utf-8")

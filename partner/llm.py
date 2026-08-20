@@ -64,6 +64,7 @@ _NO_PARTNER = frozenset(
         "digest",
         "weekly_tasks",
         "today",
+        "today_recap",
         "tomorrow",
         "brief",
         "plan",
@@ -137,7 +138,7 @@ def parse_fetch(text: str) -> tuple[str, str] | None:
 
 _CLASSIFY_PROMPT = (
     "把用户这句话分类成一个 JSON 对象，不要解释。\n"
-    "action 只能是: today, tomorrow, tasks, brief, weekly, inbox, minutes, "
+    "action 只能是: today, today_recap, tomorrow, tasks, brief, weekly, inbox, minutes, "
     "approval, chats, search, read, person, plan, write_doc, resolve, help\n"
     "已解决/已完成/搞定/已经处理 → resolve，不要用 person。\n"
     "问某人回复/怎么说/回了没/那边怎么样 → person，query 是人名，不要用 search。\n"
@@ -145,6 +146,7 @@ _CLASSIFY_PROMPT = (
     "写文档/给我写个这个/按提纲写 → write_doc，query 是标题或链接。\n"
     "明天任务/明天的任务/明日任务 → tomorrow，不要用 tasks。\n"
     "今天的任务/今日任务 → today，不要用 tasks。tasks 只给「待办」「我的任务」。\n"
+    "我今天干了什么/读今天消息做回顾 → today_recap，不要用 today。\n"
     "只有明确要搜文档才用 search。找群用 chats。\n"
     '只输出一行 JSON，例如 {"action":"person","query":"张三"}\n\n'
     "用户："

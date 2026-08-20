@@ -94,6 +94,7 @@ _TASK_CONTINUE_EXACT = {
     "下一步",
 }
 _TASK_STATUS_EXACT = {"任务进度", "进行到哪", "进行到哪了", "进度如何", "任务状态"}
+_TASK_CANCEL_EXACT = {"取消任务", "停止任务", "终止任务", "别做了", "停掉任务"}
 _TASK_CONFIRM_EXACT = {
     "确认写入",
     "确认执行",
@@ -157,6 +158,25 @@ def _folded(raw: str) -> str:
     text = (raw or "").strip()
     folded = re.sub(r"[？?。！!…]+$", "", text).strip()
     return folded if folded else text
+
+
+def looks_like_today_recap(raw: str) -> bool:
+    """Natural retrospective question about my day, not a named artifact."""
+    text = _folded(raw)
+    if not any(scope in text for scope in ("今天", "今日")):
+        return False
+    if any(noun in text for noun in ("文档", "文件", "链接", "接口")) and any(
+        change in text for change in ("修改", "变化", "内容", "更新")
+    ):
+        return False
+    asks_activity = bool(
+        re.search(r"(?:干|做|忙|完成).{0,2}(?:什么|啥|哪些)", text)
+    )
+    asks_messages = (
+        any(noun in text for noun in ("消息", "聊天", "群聊"))
+        and any(verb in text for verb in ("读", "看", "翻", "查", "汇总"))
+    )
+    return asks_activity or asks_messages
 
 
 def looks_like_tasks(raw: str) -> bool:
@@ -344,6 +364,7 @@ _PERSON_RES = (
 _CLASSIFY_ACTIONS = frozenset(
     {
         "today",
+        "today_recap",
         "tomorrow",
         "tasks",
         "brief",
@@ -361,6 +382,7 @@ _CLASSIFY_ACTIONS = frozenset(
         "help",
         "digest",
         "weekly_tasks",
+        "task_cancel",
     }
 )
 
@@ -410,6 +432,7 @@ def parse_classified(raw: str) -> Intent | None:
 def plan_query(raw: str) -> str:
     q = _folded(raw)
     for pattern in (
+        r"^(?:任务模式|深度任务|开始任务)\s*[:：]?\s*(.+)$",
         r"^(?:规划|计划|拆解|任务规划|任务拆解|plan)\s*[:：]?\s*(.+)$",
         r"^(?:帮我|帮忙)?(?:规划|计划|拆解|安排)\s*(.+)$",
         r"^(?:帮我|帮忙)?把\s*(.+?)\s*(?:拆成|拆解成|分成)(?:可执行)?步骤$",
@@ -443,6 +466,10 @@ def looks_like_task_confirm(raw: str) -> bool:
     if folded in _TASK_CONFIRM_EXACT:
         return True
     return bool(re.match(r"^确认执行第\s*\d+\s*步", folded))
+
+
+def looks_like_task_cancel(raw: str) -> bool:
+    return _folded(raw) in _TASK_CANCEL_EXACT
 
 
 def looks_like_write_doc(raw: str) -> bool:
@@ -485,6 +512,8 @@ def parse_intent(text: str) -> Intent:
         return Intent(action="digest")
     if folded in _WEEKLY_TASKS_EXACT:
         return Intent(action="weekly_tasks")
+    if looks_like_today_recap(raw):
+        return Intent(action="today_recap")
     if folded in _TODAY_EXACT or key in _TODAY_EXACT:
         return Intent(action="today")
     if folded in _BRIEF_EXACT or key in _BRIEF_EXACT:
@@ -505,6 +534,8 @@ def parse_intent(text: str) -> Intent:
         return Intent(action="task_status")
     if looks_like_task_confirm(raw):
         return Intent(action="task_confirm")
+    if looks_like_task_cancel(raw):
+        return Intent(action="task_cancel")
     if looks_like_task_continue(raw):
         return Intent(action="task_continue")
     if looks_like_tasks(raw):

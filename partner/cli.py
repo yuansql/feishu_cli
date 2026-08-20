@@ -40,11 +40,17 @@ PARTNER_CMDS = {
     "weekly",
     "brief",
     "mcp",
+    "mcp-http",
     "followup",
     "digest",
     "aily",
     "align",
     "plan",
+    "agent-worker",
+    "webhook",
+    "workflow",
+    "rag",
+    "sandbox",
 }
 
 
@@ -97,6 +103,9 @@ def main(argv: list[str] | None = None) -> int:
     p_plan = sub.add_parser("plan")
     p_plan.add_argument("goal", nargs="*")
 
+    p_worker = sub.add_parser("agent-worker")
+    p_worker.add_argument("--drain", action="store_true")
+
     p_serve = sub.add_parser("serve")
     p_serve.add_argument("--timeout", default=None)
     p_serve.add_argument("--max-events", type=int, default=0)
@@ -120,6 +129,21 @@ def main(argv: list[str] | None = None) -> int:
     p_digest.add_argument("--force", action="store_true")
 
     sub.add_parser("mcp")
+    p_mcp_http = sub.add_parser("mcp-http")
+    p_mcp_http.add_argument("--host", default="127.0.0.1")
+    p_mcp_http.add_argument("--port", type=int, default=8765)
+
+    p_webhook = sub.add_parser("webhook")
+    p_webhook.add_argument("--host", default="127.0.0.1")
+    p_webhook.add_argument("--port", type=int, default=8766)
+
+    sub.add_parser("workflow")
+
+    p_rag = sub.add_parser("rag")
+    p_rag.add_argument("rag_cmd", nargs="?", choices=["index", "query", "stats"])
+    p_rag.add_argument("rag_args", nargs="*", default=[])
+
+    sub.add_parser("sandbox")
 
     args = parser.parse_args(argv)
     if args.cmd == "status":
@@ -178,6 +202,11 @@ def main(argv: list[str] | None = None) -> int:
             )
         )
         return 0
+    if args.cmd == "agent-worker":
+        from .runner import run_worker
+
+        run_worker(drain=args.drain)
+        return 0
     if args.cmd == "serve":
         if args.install:
             print(install_serve())
@@ -230,5 +259,37 @@ def main(argv: list[str] | None = None) -> int:
         from .mcp_server import serve_stdio
 
         return serve_stdio()
+    if args.cmd == "mcp-http":
+        from .mcp_http import serve_http
+
+        return serve_http(host=args.host, port=args.port)
+    if args.cmd == "webhook":
+        from .webhook import serve_webhook
+
+        return serve_webhook(host=args.host, port=args.port)
+    if args.cmd == "workflow":
+        from .workflow import list_workflows_text
+
+        print(list_workflows_text())
+        return 0
+    if args.cmd == "rag":
+        from .rag import rag_cli
+
+        cmd = getattr(args, "rag_cmd", None)
+        arg = " ".join(getattr(args, "rag_args", []) or []).strip()
+        if cmd == "stats":
+            print(rag_cli(stats=True))
+        elif cmd == "index":
+            print(rag_cli(index=arg))
+        elif cmd == "query":
+            print(rag_cli(query=arg))
+        else:
+            print(rag_cli())
+        return 0
+    if args.cmd == "sandbox":
+        from .sandbox import sandbox_status_text
+
+        print(sandbox_status_text())
+        return 0
     print(HELP_TEXT)
     return 0

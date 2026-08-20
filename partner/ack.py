@@ -7,6 +7,7 @@ ACK_EMOJI = "OnIt"
 _ACK = {
     "tasks": "在查待办…",
     "today": "在看今天…",
+    "today_recap": "在读今天的消息…",
     "tomorrow": "在看明天…",
     "task_done": "在勾那条待办…",
     "brief": "在写简报…",
@@ -27,6 +28,7 @@ _ACK = {
     "task_continue": "在跑下一步…",
     "task_status": "在看任务进度…",
     "task_confirm": "在同步写回…",
+    "task_cancel": "在停止任务…",
     "aily": "在整理对齐项…",
 }
 

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
+import os
 import re
+from typing import Any, Collection
 
-from .llm import rewrite_plan
+from .llm import _invoke_hermes, rewrite_plan
 
 
 def _clean_goal(goal: str) -> str:
@@ -122,6 +125,10 @@ def plan_steps(goal: str, facts: str = "") -> list[dict[str, str | dict[str, str
     if not cleaned:
         return []
     key = _keyword(cleaned)
+    no_write = any(
+        phrase in cleaned
+        for phrase in ("不写入", "不要写", "只读", "不要创建", "无需写入", "不落盘")
+    )
     steps: list[dict[str, str | dict[str, str]]] = [
         {"title": "读取今天日程、待办和要跟的活", "tool": "today", "args": {}},
         {"title": "读取未完成待办", "tool": "tasks", "args": {}},
@@ -149,7 +156,18 @@ def plan_steps(goal: str, facts: str = "") -> list[dict[str, str | dict[str, str
             }
         )
     steps.append({"title": "汇总材料并给出建议", "tool": "summarize", "args": {}})
-    if any(word in cleaned for word in ("文档", "周报", "总结", "方案", "复盘")):
+    if any(word in cleaned for word in ("沙箱", "脚本", "python", "本地计算", "跑一下代码")):
+        steps.insert(
+            -1,
+            {
+                "title": "查看本地沙箱",
+                "tool": "sandbox_ls",
+                "args": {"path": "."},
+            },
+        )
+    if not no_write and any(
+        word in cleaned for word in ("文档", "周报", "总结", "方案", "复盘")
+    ):
         steps.append(
             {
                 "title": f"创建云文档初稿：{cleaned}",
@@ -158,23 +176,132 @@ def plan_steps(goal: str, facts: str = "") -> list[dict[str, str | dict[str, str
                 "requires_confirm": True,
             }
         )
-    steps.append(
-        {
-            "title": "写入本地跟进账（需确认）",
-            "tool": "followup_add",
-            "args": {"goal": cleaned},
-            "requires_confirm": True,
-        }
-    )
-    steps.append(
-        {
-            "title": "创建飞书待办（需确认）",
-            "tool": "task_create",
-            "args": {"summary": cleaned},
-            "requires_confirm": True,
-        }
-    )
+    if not no_write and any(
+        phrase in cleaned
+        for phrase in ("写入跟进", "加入跟进", "记到跟进", "创建跟进", "催办")
+    ):
+        steps.append(
+            {
+                "title": "写入本地跟进账（需确认）",
+                "tool": "followup_add",
+                "args": {"goal": cleaned},
+                "requires_confirm": True,
+            }
+        )
+    if not no_write and any(
+        phrase in cleaned
+        for phrase in (
+            "创建待办",
+            "新建待办",
+            "写入待办",
+            "同步待办",
+            "加入待办",
+            "创建飞书任务",
+        )
+    ):
+        steps.append(
+            {
+                "title": "创建飞书待办（需确认）",
+                "tool": "task_create",
+                "args": {"summary": cleaned},
+                "requires_confirm": True,
+            }
+        )
     return steps
+
+
+def _extract_plan_json(raw: str) -> dict[str, Any] | None:
+    blob = (raw or "").strip()
+    start = blob.find("{")
+    end = blob.rfind("}")
+    if start < 0 or end <= start:
+        return None
+    try:
+        parsed = json.loads(blob[start : end + 1])
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def agent_plan_steps(
+    goal: str,
+    facts: str,
+    *,
+    available_tools: Collection[str],
+    write_tools: Collection[str] = (),
+    previous_steps: list[dict[str, Any]] | None = None,
+    failure: str = "",
+    timeout: int = 45,
+) -> list[dict[str, Any]]:
+    """Plan from observed facts; return [] so the runtime can use its safe fallback."""
+    cleaned = _clean_goal(goal)
+    allowed = {str(item).strip() for item in available_tools if str(item).strip()}
+    writes = {str(item).strip() for item in write_tools if str(item).strip()}
+    no_write = any(
+        phrase in cleaned
+        for phrase in ("不写入", "不要写", "只读", "不要创建", "无需写入", "不落盘")
+    )
+    if not cleaned or not allowed or os.environ.get("FEISHU_PARTNER_NO_LLM") == "1":
+        return []
+    previous = json.dumps(previous_steps or [], ensure_ascii=False)[:5000]
+    prompt = f"""你是飞书工作伙伴的任务规划器，只负责输出 JSON，不执行工具。
+目标：{cleaned}
+
+已观察事实：
+{(facts or "暂无")[:12000]}
+
+上版步骤：
+{previous}
+
+失败原因：
+{(failure or "无")[:1000]}
+
+可用工具（只能从这里选）：{", ".join(sorted(allowed))}
+写工具（仅目标明确要求写入/创建时使用，运行时还会再次向用户确认）：{", ".join(sorted(writes)) or "无"}
+
+输出严格 JSON：
+{{"reason":"一句规划理由","steps":[{{"title":"可验证动作","tool":"工具名","args":{{"参数":"值"}}}}]}}
+
+规则：
+1. 基于已观察事实规划 1-8 步，不重复已经成功且结果仍有效的动作。
+2. 每步只能调用一个可用工具；参数只能是短字符串。
+3. 遇到权限、缺失对象或用户必须决定的分叉，不要虚构补全。
+4. 最后用 summarize 汇总；不要输出 Markdown、思考过程或额外文字。
+"""
+    raw = _invoke_hermes(prompt, timeout=timeout)
+    payload = _extract_plan_json(raw)
+    rows = payload.get("steps") if isinstance(payload, dict) else None
+    if not isinstance(rows, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for item in rows[:8]:
+        if not isinstance(item, dict):
+            continue
+        tool = str(item.get("tool") or "").strip()
+        if tool not in allowed or (no_write and tool in writes):
+            continue
+        raw_args = item.get("args")
+        args = (
+            {
+                str(key): str(value)[:500]
+                for key, value in raw_args.items()
+                if isinstance(value, (str, int, float, bool))
+            }
+            if isinstance(raw_args, dict)
+            else {}
+        )
+        out.append(
+            {
+                "title": str(item.get("title") or tool).strip()[:160],
+                "tool": tool,
+                "args": args,
+                "requires_confirm": tool in writes,
+            }
+        )
+    if out and not any(str(step.get("tool") or "") == "summarize" for step in out):
+        if "summarize" in allowed:
+            out.append({"title": "汇总结果并验收目标", "tool": "summarize", "args": {}})
+    return out
 
 
 def plan_text(goal: str, facts: str = "", *, allow_llm: bool = True) -> str:

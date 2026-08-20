@@ -16,6 +16,7 @@ class AckLineTests(unittest.TestCase):
         self.assertEqual(ack_line("plan"), "在拆计划…")
         self.assertEqual(ack_line("aily"), "在整理对齐项…")
         self.assertEqual(ack_line("write_doc"), "在写文档…")
+        self.assertEqual(ack_line("today_recap"), "在读今天的消息…")
         self.assertTrue(should_ack_text("tasks"))
         self.assertFalse(should_ack_text("help"))
         self.assertEqual(ACK_EMOJI, "OnIt")

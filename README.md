@@ -1,8 +1,7 @@
 # 飞书工作伙伴
 
-自建、不付费。目标是对齐 **飞书豆包工作伙伴** 的办公闭环：在飞书里问、在飞书里办事。  
-**不是** 官方 aily / 豆包企业版：没有 AI 额度、智能体工作台、多维表格 AI 字段。
-公开能力、当前覆盖和刻意不做的范围见 [AILY_ALIGNMENT.md](AILY_ALIGNMENT.md)。
+自建**完全本地独立**的飞书办公智能体，功能对标 **飞书 Aily / 豆包工作伙伴**：在飞书里问、后台执行、在飞书里交付。**不对接 Aily 任何接口**，缺口在本仓库内单独开发。
+公开能力、当前覆盖和开发路线图见 [AILY_ALIGNMENT.md](AILY_ALIGNMENT.md)。部署见 [DEPLOY.md](DEPLOY.md)。
 
 手：官方 [`lark-cli`](https://github.com/larksuite/cli)（本机已登录；应用名/ID 勿写入文档）。  
 脑：Cursor 对话（本仓 `SKILL.md`）。飞书单聊走本机 Hermes 隔离档案 `feishupartner`：只有白名单飞书取数 MCP，从不 `--yolo`，不给终端。群里只润色。
@@ -41,8 +40,13 @@ lark-cli auth login --scope "calendar:calendar.event:read search:docs:read"
 | `feishu ask 今天` | 自然语言短指令 |
 | `feishu serve` | 飞书内收消息（WebSocket） |
 | `feishu brief` | 昨天小结 + 今天规划；`--install` 装 09:00 定时，`--push` 推单聊 |
-| `feishu plan <目标>` | 按今天日程、待办、跟进账拆成可执行计划 |
-| `feishu aily` | 对比豆包工作伙伴 / 飞书 aily 功能差距 |
+| `feishu plan <目标>` | CLI 输出计划；飞书内「任务模式/规划」会先观察、动态规划并后台执行 |
+| `feishu rag stats` / `index` / `query` | 本地 RAG 索引与召回 |
+| `feishu sandbox` | 查看本地沙箱路径与允许命令 |
+| `feishu workflow` | 列出本地 Workflow 及触发词 |
+| `feishu webhook` | Webhook 触发后台任务（HMAC，默认 127.0.0.1:8766） |
+| `feishu mcp-http` | 可选 MCP HTTP 网关（外部 Agent 扩展） |
+| `feishu aily` | 对标 Aily 能力差距与本地开发路线图 |
 | `feishu <lark-cli 原生命令>` | 原样转交，如 `feishu wiki +space-list` |
 
 ## 飞书里怎么用
@@ -58,8 +62,13 @@ lark-cli auth login --scope "calendar:calendar.event:read search:docs:read"
 lark-cli event consume im.message.receive_v1 --as bot
     │
     ▼
-意图路由（帮助/今天/待办/搜/读/群/发）
+意图路由（简单对话 / 任务模式）
     │
+    ▼
+TaskRunner v2（观察 → 动态规划 → 执行 → 验真 → 重规划）
+    │
+    ├─ 后台 worker / 取消 / 恢复 / 脱敏运行轨迹
+    ├─ 本地 Multi-Agent：调研 → 执行 → 交付（规划前协作）
     ▼
 lark-cli 读用户身份办事 / 机器人身份回复
     │
@@ -81,6 +90,7 @@ ln -sf ~/.workbuddy/binaries/node/cli-connector-packages/bin/lark-cli ~/.local/b
 ## 刻意不做
 
 - 重写 OpenAPI SDK  
-- 克隆 aily 工作台 / 计费 / AI 字段  
+- **对接飞书 Aily 平台**（API、控制台绑定、以接入 Aily 作为达标路径）
+- 企业计费 / 租户管理员 UI / 应用市场审核（单用户 CLI 标 N/A）
 - 群消息驱动本机任意命令（Hermes `--yolo`）  
 - 把 App Secret 提交进 git

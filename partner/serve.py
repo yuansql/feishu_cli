@@ -37,6 +37,7 @@ from .llm import (
     _looks_like_transport_error,
 )
 from .resolved import confirm_card
+from .runner import ensure_worker
 from .watch import consider, format_watch_push
 
 CN_TZ = timezone(timedelta(hours=8))
@@ -325,6 +326,7 @@ def serve(timeout: str | None = None, max_events: int = 0) -> int:
             _maybe_push_brief()
             _maybe_scan_bitable()
             _maybe_sync_user_chats()
+            ensure_worker()
             live: list[int] = []
             if msg_proc.poll() is None:
                 live.append(msg_fd)

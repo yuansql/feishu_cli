@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import os
 import unittest
 from unittest.mock import patch
 
-from partner.planner import plan_text
+from partner.planner import agent_plan_steps, plan_text
 
 
 class PlannerTests(unittest.TestCase):
@@ -33,6 +34,65 @@ class PlannerTests(unittest.TestCase):
         with patch("partner.planner.rewrite_plan", return_value=shaped):
             text = plan_text("A6 上线", "【待办】\n- A6")
         self.assertEqual(text, shaped)
+
+    def test_agent_plan_is_strictly_allowlisted(self) -> None:
+        shaped = """{
+          "reason": "先查再写",
+          "steps": [
+            {"title": "查待办", "tool": "tasks", "args": {}},
+            {"title": "危险命令", "tool": "shell", "args": {"cmd": "rm -rf /"}},
+            {"title": "建文档", "tool": "docs_create", "args": {"query": "A6"}}
+          ]
+        }"""
+        with patch("partner.planner._invoke_hermes", return_value=shaped):
+            steps = agent_plan_steps(
+                "整理 A6 并创建文档",
+                "A6 已提测",
+                available_tools={"tasks", "docs_create", "summarize"},
+                write_tools={"docs_create"},
+            )
+        self.assertEqual(
+            [step["tool"] for step in steps],
+            ["tasks", "docs_create", "summarize"],
+        )
+        self.assertTrue(steps[1]["requires_confirm"])
+
+    def test_agent_plan_rejects_non_json(self) -> None:
+        with patch("partner.planner._invoke_hermes", return_value="我建议先思考"):
+            steps = agent_plan_steps(
+                "A6",
+                "",
+                available_tools={"tasks", "summarize"},
+            )
+        self.assertEqual(steps, [])
+
+    def test_agent_plan_cannot_override_explicit_no_write(self) -> None:
+        shaped = """{
+          "reason": "误判",
+          "steps": [
+            {"title": "建文档", "tool": "docs_create", "args": {"query": "A6"}},
+            {"title": "汇总", "tool": "summarize", "args": {}}
+          ]
+        }"""
+        with patch("partner.planner._invoke_hermes", return_value=shaped):
+            steps = agent_plan_steps(
+                "只读 A6，不写入任何内容",
+                "",
+                available_tools={"docs_create", "summarize"},
+                write_tools={"docs_create"},
+            )
+        self.assertEqual([step["tool"] for step in steps], ["summarize"])
+
+    def test_agent_plan_honors_no_llm_mode(self) -> None:
+        with patch.dict(os.environ, {"FEISHU_PARTNER_NO_LLM": "1"}):
+            with patch("partner.planner._invoke_hermes") as invoke:
+                steps = agent_plan_steps(
+                    "A6",
+                    "",
+                    available_tools={"tasks", "summarize"},
+                )
+        self.assertEqual(steps, [])
+        invoke.assert_not_called()
 
 
 if __name__ == "__main__":

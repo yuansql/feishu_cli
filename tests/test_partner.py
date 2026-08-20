@@ -97,7 +97,7 @@ class PartnerCliTests(unittest.TestCase):
             code = main(["aily"])
 
         self.assertEqual(code, 0)
-        self.assertIn("飞书 Aily / 豆包工作伙伴功能对齐", output.getvalue())
+        self.assertIn("飞书 Aily 能力对标", output.getvalue())
 
     def test_plan_command_uses_goal_and_today_context(self) -> None:
         output = StringIO()
