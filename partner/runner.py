@@ -245,6 +245,34 @@ def _looks_like_failure(text: str) -> bool:
     return any(token in blob or token in lower for token in markers)
 
 
+def _collect_materials_for_report(task: dict[str, Any]) -> str:
+    sections: list[str] = []
+    for step in task.get("steps") or []:
+        if not isinstance(step, dict):
+            continue
+        tool = str(step.get("tool") or "")
+        if tool in {"summarize", "report_write"}:
+            continue
+        if str(step.get("status") or "") != "done":
+            continue
+        body = str(step.get("result") or "").strip()
+        if not body:
+            continue
+        title = str(step.get("title") or tool)
+        sections.append(f"## {title}\n\n{body}")
+    brief = task.get("multi_agent")
+    if isinstance(brief, dict):
+        writer = brief.get("writer")
+        if isinstance(writer, dict):
+            body = str(writer.get("text") or "").strip()
+            if body:
+                sections.append(f"## 交付结构\n\n{body}")
+    joined = "\n\n".join(sections).strip()
+    if len(joined) > 12000:
+        return joined[:12000] + "\n…(截断)"
+    return joined
+
+
 def _summarize_task(task: dict[str, Any]) -> str:
     goal = str(task.get("goal") or "")
     lines = [f"任务：{goal}", "", "【已收集】"]
@@ -506,6 +534,8 @@ def _execute_step(
     clean_args = {str(k): str(v) for k, v in args.items()}
     clean_args.setdefault("chat_id", str(task.get("chat_id") or ""))
     title = str(step.get("title") or tool)
+    if tool == "report_write" and not clean_args.get("materials"):
+        clean_args["materials"] = _collect_materials_for_report(task)
     if tool in CONFIRM_TOOLS and not confirm_write and (
         step.get("requires_confirm") or str(step.get("status") or "") == "blocked"
     ):

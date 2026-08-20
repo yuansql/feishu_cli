@@ -99,6 +99,21 @@ class TaskExecutionTests(unittest.TestCase):
         self.assertIn("提测", loaded["steps"][0]["result"])
         self.assertIn("1/", msg)
 
+    def test_report_write_injects_collected_materials(self) -> None:
+        steps = [
+            {"title": "today", "tool": "today", "args": {}},
+            {"title": "report", "tool": "report_write", "args": {"goal": "周报"}},
+        ]
+        task = create_task("生成本地报告", "oc_p2p", steps)
+        task["steps"][0]["status"] = "done"
+        task["steps"][0]["result"] = "日程：A6 提测"
+        save_task(task)
+        with patch("partner.runner.run_write_tool", return_value="已生成本地 HTML") as write:
+            run_next(task["id"])
+        write.assert_called_once()
+        self.assertEqual(write.call_args[0][0], "report_write")
+        self.assertIn("A6", write.call_args[0][1]["materials"])
+
     def test_run_all_completes_read_steps_and_summarize(self) -> None:
         steps = [
             {"title": "today", "tool": "today", "args": {}},

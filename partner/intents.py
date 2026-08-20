@@ -116,6 +116,16 @@ _WRITE_DOC_HINTS = (
     "给我写",
     "写文档",
 )
+_LOCAL_REPORT_HINTS = (
+    "生成本地报告",
+    "本地 html 报告",
+    "本地html报告",
+    "html 报告",
+    "html报告",
+    "本地工作报告",
+    "生成 html",
+    "生成HTML",
+)
 
 
 @dataclass(frozen=True)
@@ -434,6 +444,7 @@ def plan_query(raw: str) -> str:
     for pattern in (
         r"^(?:任务模式|深度任务|开始任务)\s*[:：]?\s*(.+)$",
         r"^(?:规划|计划|拆解|任务规划|任务拆解|plan)\s*[:：]?\s*(.+)$",
+        r"^(?:生成|写|出)?(?:一份)?本地(?:\s*html|\s*HTML)?报告\s*[:：]?\s*(.+)$",
         r"^(?:帮我|帮忙)?(?:规划|计划|拆解|安排)\s*(.+)$",
         r"^(?:帮我|帮忙)?把\s*(.+?)\s*(?:拆成|拆解成|分成)(?:可执行)?步骤$",
         r"^(.+?)(?:怎么推进|如何推进|怎么拆|如何拆解)$",
@@ -444,9 +455,17 @@ def plan_query(raw: str) -> str:
     return ""
 
 
+def looks_like_local_report(raw: str) -> bool:
+    text = _folded(raw)
+    lower = text.lower()
+    if any(stop in text for stop in ("不写入", "不要写", "只读", "无需写入")):
+        return False
+    return any(hint in text or hint.lower() in lower for hint in _LOCAL_REPORT_HINTS)
+
+
 def looks_like_plan(raw: str) -> bool:
     folded = _folded(raw)
-    return folded in _PLAN_EXACT or bool(plan_query(raw))
+    return folded in _PLAN_EXACT or bool(plan_query(raw)) or looks_like_local_report(raw)
 
 
 def looks_like_task_continue(raw: str) -> bool:
@@ -526,6 +545,8 @@ def parse_intent(text: str) -> Intent:
         if "周报" in raw:
             return Intent(action="write_weekly")
         return Intent(action="write_doc", query=write_doc_query(raw))
+    if looks_like_local_report(raw):
+        return Intent(action="plan", query=plan_query(raw) or raw)
     if folded in _WEEKLY_EXACT:
         return Intent(action="weekly")
     if looks_like_plan(raw):

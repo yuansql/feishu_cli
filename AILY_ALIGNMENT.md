@@ -23,9 +23,10 @@
 Local Agent Runtime（唯一内核 · 深化 runner.py）
   ├─ 模型推理 / Workflow / 知识问答 / 混合调度
   ├─ 任务模式：后台 worker + 持久状态 + 通知
-  ├─ Multi-Agent：本地子角色编排（待开发）
-  ├─ 本地沙箱：隔离目录 + 受限终端/浏览器（待开发）
-  └─ ToolRegistry：runner / MCP / Hermes 统一工具契约（待开发）
+  ├─ Multi-Agent：本地 researcher/executor/writer 子角色（已落地）
+  ├─ 本地沙箱：隔离目录 + 命令白名单（已落地）
+  ├─ 本地 HTML 报告：report_write + feishu report（已落地）
+  └─ ToolRegistry：runner / MCP / Hermes 统一工具契约（已落地）
         │
         ▼
 lark-cli（user 读办事 / bot 收发）+ 确认闸 + 回读验真
@@ -57,8 +58,9 @@ MCP HTTP（`feishu mcp-http`）仅作**可选对外扩展**（Cursor/Hermes 等�
 - **TaskRunner v2**：observe→plan→act→verify→replan；确认闸、取消、恢复
 - **异步 worker**：飞书收消息不阻塞；任务队列 + 完成通知
 - **运行轨迹**：`~/.feishu-partner/traces/<task>.jsonl`（脱敏）
-- **办公闭环**：DayRecap、ArtifactTask、简报/跟进、飞书读写工具
+- **办公闭环**：DayRecap、ArtifactTask、简报/跟进、飞书读写工具、**本地 HTML 报告**
 - **MCP**：stdio + 可选 HTTP 网关（外部 Agent 用，非 Aily）
+- **Clone 即用**：`feishu setup --name 名字` → `~/.feishu-partner/config.json`（不进 git）
 
 ## 待单独开发（本地路线图）
 
@@ -84,7 +86,6 @@ MCP HTTP（`feishu mcp-http`）仅作**可选对外扩展**（Cursor/Hermes 等�
 
 | 项 | 结果 |
 |---|---|
-| 全量单测 | **262 passed** |
-| `feishu doctor` | 日程/文档/待办/消息回顾/收消息/卡片 **OK** |
-| `com.feishu.partner.serve` | `state=running` |
-| 本地 Agent 长跑 | 「汇总今天待办，不写入」→ **done**，无写步骤 |
+| 全量单测 | **297 passed**（`python3 -m unittest discover -s tests -q`） |
+| `feishu setup` / `feishu doctor` | 身份闸 + OAuth 探针 |
+| `feishu report` | 本地 HTML 落盘 `~/.feishu-partner/reports/` |

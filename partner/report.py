@@ -96,7 +96,10 @@ def write_report(*, title: str, body: str, meta: str = "") -> Path:
 def report_from_goal(goal: str, materials: str = "") -> str:
     """Create a local HTML report; return path + tip for upload."""
     title = (goal or "工作报告").strip()[:80] or "工作报告"
-    body = materials.strip() or f"# {title}\n\n（尚无材料；可先任务模式收集事实后再生成报告。）"
+    if materials.strip():
+        body = f"# {title}\n\n{materials.strip()}"
+    else:
+        body = f"# {title}\n\n（尚无材料；可先任务模式收集事实后再生成报告。）"
     path = write_report(title=title, body=body)
     return (
         f"已生成本地 HTML 报告：\n{path}\n\n"

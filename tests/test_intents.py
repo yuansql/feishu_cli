@@ -182,6 +182,12 @@ class ParseIntentTests(unittest.TestCase):
         self.assertEqual(parse_intent("今日规划").action, "brief")
         self.assertEqual(parse_intent("能力对齐").action, "aily")
 
+    def test_local_html_report_starts_task_mode(self) -> None:
+        intent = parse_intent("生成本地 HTML 报告：本周风险")
+        self.assertEqual(intent.action, "plan")
+        self.assertIn("风险", intent.query)
+        self.assertEqual(parse_intent("本地工作报告").action, "plan")
+
 
 if __name__ == "__main__":
     unittest.main()

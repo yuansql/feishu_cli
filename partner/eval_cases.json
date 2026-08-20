@@ -9,6 +9,7 @@
     {"id": "confirm-writes", "text": "确认写入", "expect_action": "task_confirm"},
     {"id": "workflow-morning", "text": "晨间核对", "expect_mode": "workflow"},
     {"id": "knowledge-qa", "text": "知识问答 报销制度", "expect_mode": "knowledge"},
-    {"id": "task-mode", "text": "任务模式 汇总风险", "expect_mode": "task"}
+    {"id": "task-mode", "text": "任务模式 汇总风险", "expect_mode": "task"},
+    {"id": "local-html-report", "text": "生成本地 HTML 报告 本周风险", "expect_action": "plan"}
   ]
 }
