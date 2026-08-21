@@ -72,6 +72,14 @@ _NO_PARTNER = frozenset(
         "task_status",
         "task_confirm",
         "aily",
+        # Fast facts: don't block the single-threaded serve on Hermes.
+        "search",
+        "read",
+        "help",
+        "chats",
+        "chat_history",
+        "inbox",
+        "identity",
     }
 )
 _FETCH_SIMPLE = frozenset(
@@ -156,6 +164,7 @@ _CLASSIFY_PROMPT = (
     "approval, chats, search, read, person, plan, write_doc, resolve, help\n"
     "已解决/已完成/搞定/已经处理 → resolve，不要用 person。\n"
     "问某人回复/怎么说/回了没/那边怎么样 → person，query 是人名，不要用 search。\n"
+    "问「X是谁」→ who，query 是人名；不要用 person 甩聊天。\n"
     "要规划/拆解/制定执行步骤/任务模式 → plan，query 是要规划的目标。\n"
     "写文档/给我写个这个/按提纲写 → write_doc，query 是标题或链接。\n"
     "明天任务/明天的任务/明日任务 → tomorrow，不要用 tasks。\n"
@@ -425,6 +434,8 @@ def _partner_prompt(user_text: str, facts: str, *, with_tools: bool) -> str:
             "优先用 feishu_* 工具取材料，可以多轮调用再回答。\n"
             "问哪个群、交给测试的群：调用 feishu_chats（可带 query），不要搜文档。\n"
             "问某人回复/怎么说/回了没：调用 feishu_person，query 用人名，不要搜文档。\n"
+            "问「X是谁」：用 feishu_search / feishu_knowledge / 通讯录线索归纳两三句话，"
+            "禁止调用 feishu_person，禁止罗列聊天原文或「最近怎么说」。\n"
             "问今天干了什么：feishu_day_recap；待跟进：feishu_digest；记忆：feishu_memory；制度问答：feishu_knowledge。\n"
             "不确定授权状态可调 feishu_identity。不要用终端、不要改文件、不要发消息、不要创建文档/待办。\n"
             "禁止把思考、指令或 FETCH 行发给用户；只输出给用户看的正文。\n"
@@ -496,7 +507,9 @@ def draft_weekly_from_chats(facts: str, *, timeout: int = 90) -> str:
         "只根据材料，不许编造材料里没有的项目、进度、人名。\n"
         "必须使用这些标题（按顺序）：【本周完成】【进行中与上周结转】【问题与风险】【下周计划】。\n"
         "条目用 - 开头；没有可写的部分写「暂无」。\n"
-        "禁止写【有人找你】、禁止复制整段聊天原文、不要解释你是 AI。\n\n"
+        "禁止写【有人找你】、禁止复制整段聊天原文、不要解释你是 AI。\n"
+        "【本周完成】只写可核验的工作成果短句，禁止「群名：聊天原文」、禁止把同事原话当完成项。\n"
+        "【进行中与上周结转】写推进中的事项；【下周计划】写可执行动作。\n\n"
         f"【材料】\n{facts.strip()[:8000]}"
     )
     text = _run_hermes(prompt, timeout=timeout)

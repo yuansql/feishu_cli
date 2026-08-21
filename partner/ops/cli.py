@@ -52,6 +52,7 @@ PARTNER_CMDS = {
     "rag",
     "sandbox",
     "eval",
+    "smoke",
     "versions",
     "setup",
     "report",
@@ -69,7 +70,7 @@ def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv or argv[0] in {"-h", "--help"}:
         print(help_text())
-        print("CLI：feishu setup|status|doctor|today|tasks|search|read|chats|send|serve|brief|followup|report|aily|plan")
+        print("CLI：feishu setup|status|doctor|today|tasks|search|read|chats|send|serve|brief|followup|report|aily|plan|eval|smoke")
         print("其余参数原样交给 lark-cli，例如：feishu calendar +agenda")
         return 0
     head = argv[0]
@@ -159,6 +160,13 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("sandbox")
     sub.add_parser("eval")
+
+    p_smoke = sub.add_parser("smoke")
+    p_smoke.add_argument(
+        "--live-write",
+        action="store_true",
+        help="also run write_weekly / fill-template (mutates Feishu)",
+    )
 
     p_versions = sub.add_parser("versions")
     p_versions.add_argument("versions_args", nargs="*", default=[])
@@ -341,6 +349,14 @@ def main(argv: list[str] | None = None) -> int:
 
         print(eval_text())
         return 0
+    if args.cmd == "smoke":
+        from .smoke import run_smoke, smoke_text
+
+        allow = bool(getattr(args, "live_write", False))
+        report = run_smoke(allow_write=allow)
+        print(smoke_text(allow_write=allow, report=report))
+        fx_ok = report["fixtures"]["passed"] == report["fixtures"]["total"]
+        return 0 if report["passed"] == report["total"] and fx_ok else 1
     if args.cmd == "versions":
         from .versions import versions_text
 

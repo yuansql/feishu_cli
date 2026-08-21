@@ -24,6 +24,7 @@
 | 进程 | `feishu serve` + macOS LaunchAgent；定时 brief/followup |
 | 状态 | `~/.feishu-partner/`（session / followups / traces / config） |
 | 入口 | `bin/feishu` → `python -m partner` → `partner.ops.cli` |
+| 飞书技能正文 | 仓内 `skills/lark-*`；Cursor 经 `.cursor/skills/` 软链；`scripts/sync-lark-skills.sh` |
 
 产品对标飞书 Aily **能力清单**，**不对接** Aily 接口。计分见 `feishu aily` / `AILY_ALIGNMENT.md`。
 

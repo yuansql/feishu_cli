@@ -33,6 +33,13 @@ PYTHONPATH="." python3 -m partner <子命令>
 
 ## 更深的飞书操作
 
+官方 `lark-*` 技能正文在本仓 **`skills/`**（Cursor 经 `.cursor/skills/` 软链调用）。改完或换机后跑：
+
+```bash
+bash scripts/sync-lark-skills.sh          # 刷新项目内软链
+bash scripts/sync-lark-skills.sh --local  # 另把 ~/.cursor + ~/.hermes 指到本仓 skills
+```
+
 `feishu` 不认识的子命令会原样交给官方 `lark-cli`。先看 help / schema，再调用：
 
 ```bash
@@ -40,6 +47,8 @@ lark-cli <domain> --help
 lark-cli schema <service>.<resource>.<method>
 lark-cli skills read lark-doc
 ```
+
+Agent 在本仓库干活时优先 Read：`skills/lark-shared/SKILL.md`，再按域打开 `skills/lark-im`、`skills/lark-doc` 等。
 
 写操作看 risk：`high-risk-write` 必须用户确认后再加 `--yes`。
 

@@ -10,4 +10,5 @@ from pathlib import Path
 PACKAGE_DIR = Path(__file__).resolve().parent
 REPO_ROOT = PACKAGE_DIR.parent
 WORKFLOWS_DIR = PACKAGE_DIR / "workflows"
+SKILLS_DIR = REPO_ROOT / "skills"
 BIN_FEISHU = REPO_ROOT / "bin" / "feishu"

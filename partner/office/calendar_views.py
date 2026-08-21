@@ -70,10 +70,16 @@ def _created_doc_link(payload: dict[str, Any]) -> str:
         return ''
     return str(doc.get('url') or data.get('url') or doc.get('doc_url') or '')
 
-def write_weekly_text() -> str:
-    """写周报：本周跨会话聊天证据 + 未完成待办（含上周结转），不搜部门周报文档。"""
+def write_weekly_text(query: str = "") -> str:
+    """写周报。有 wiki/docx 链接 → 原地填部门模板；否则用聊天证据新建云文档。"""
     from ..compose.llm import draft_weekly_from_chats
-    from .recap import collect_week_evidence, _fallback_summary
+    from .recap import collect_week_evidence, curated_work_buckets, _fallback_summary
+    from .weekly_fill import extract_weekly_doc_url, fill_department_weekly
+
+    doc_url = extract_weekly_doc_url(query or "")
+    if doc_url:
+        return fill_department_weekly(doc_url)
+
     start, end = _week_bounds()
     last_start = start - timedelta(days=7)
     last_end = start - timedelta(seconds=1)
@@ -87,8 +93,41 @@ def write_weekly_text() -> str:
     facts = f"周期：{start.date().isoformat()} ~ {end.date().isoformat()}\n上周结转参考窗：{last_start.date().isoformat()} ~ {last_end.date().isoformat()}\n本周检索消息 {bundle.message_count} 条，工作相关证据 {bundle.evidence_count} 条。\n\n【本周聊天证据】\n{(bundle.context or '（本周几乎没有可作周报的工作聊天）')[:7000]}\n\n【当前未完成待办（含上周结转）】\n{tasks_blob[:2500]}"
     polished = draft_weekly_from_chats(facts)
     if not polished:
-        fallback = _fallback_summary(bundle.context or '')
-        polished = '【本周完成】\n' + (fallback or '- 聊天证据不足，暂无法归纳完成项。') + '\n\n【进行中与上周结转】\n' + (tasks_blob or '- 暂无未完成待办。') + '\n\n【问题与风险】\n- 暂无\n\n【下周计划】\n' + '- 按未完成待办与进行中事项继续推进'
+        done, progress, pending = curated_work_buckets(bundle.context or "")
+        if not done and not progress:
+            fallback = _fallback_summary(bundle.context or "")
+            polished = (
+                "【本周完成】\n"
+                + (fallback.split("【推进中】")[0].replace("【今天确认做过】", "").strip() or "- 聊天证据不足，暂无法归纳完成项。")
+                + "\n\n【进行中与上周结转】\n"
+                + (tasks_blob or "- 暂无未完成待办。")
+                + "\n\n【问题与风险】\n- 暂无\n\n【下周计划】\n- 按未完成待办与进行中事项继续推进"
+            )
+        else:
+            def bullets(rows: list[str], empty: str) -> str:
+                return "\n".join(f"- {r}" for r in rows) if rows else f"- {empty}"
+
+            mid = list(progress)
+            if tasks_blob and "没有未完成" not in tasks_blob:
+                for line in tasks_blob.splitlines():
+                    s = line.strip(" -•\t")
+                    if s and "【" not in s and s not in mid:
+                        mid.append(s)
+
+            polished = (
+                "【本周完成】\n"
+                + bullets(done, "聊天证据不足，暂无法归纳完成项。")
+                + "\n\n【进行中与上周结转】\n"
+                + bullets(mid, "暂无未完成待办。")
+                + "\n\n【问题与风险】\n"
+                + bullets(pending, "暂无")
+                + "\n\n【下周计划】\n"
+                + bullets(
+                    [f"跟进：{p}" for p in pending[:3]]
+                    or ["按未完成待办与进行中事项继续推进"],
+                    "暂无",
+                )
+            )
     heading = f'{start.month}/{start.day}–{end.month}/{end.day} 周报（依据本周 {bundle.evidence_count} 条聊天证据 / 检索 {bundle.message_count} 条）'
     body = f'{heading}\n\n{polished.strip()}'
     title = f'周报 {start.date().isoformat()} ~ {end.date().isoformat()}'
@@ -96,5 +135,9 @@ def write_weekly_text() -> str:
     if created.get('ok'):
         link = _created_doc_link(created)
         extra = f'\n{link}' if link else ''
-        return f'已根据本周聊天与未完成待办生成云文档《{title}》。{extra}\n\n' + body
+        tip = (
+            "\n\n若要填部门周报模板，请发：wiki/docx 链接 +「填写周报」"
+            "（会写入你的人名节，不再另开文档）。"
+        )
+        return f'已根据本周聊天与未完成待办生成云文档《{title}》。{extra}\n\n' + body + tip
     return format_lark_error(created) + '\n\n先把摘要放这儿：\n' + body

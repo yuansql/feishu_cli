@@ -129,7 +129,10 @@ class HermesArgvTests(unittest.TestCase):
 
     def test_partner_only_in_p2p(self) -> None:
         self.assertTrue(should_partner("p2p", "unknown"))
-        self.assertTrue(should_partner("p2p", "inbox"))
+        # Fast office facts stay off Hermes so serve is not single-thread blocked.
+        self.assertFalse(should_partner("p2p", "inbox"))
+        self.assertFalse(should_partner("p2p", "chats"))
+        self.assertFalse(should_partner("p2p", "chat_history"))
         self.assertFalse(should_partner("p2p", "send"))
         self.assertFalse(should_partner("p2p", "today"))
         self.assertFalse(should_partner("p2p", "tomorrow"))

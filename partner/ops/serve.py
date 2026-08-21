@@ -70,6 +70,27 @@ def looks_like_bad_reply(text: str) -> bool:
         return True
     if _looks_like_leak(blob):
         return True
+    # Hermes / partner prompt residue that must never reach Feishu.
+    if any(
+        n in blob
+        for n in (
+            "按材料原文回复即可",
+            "不用再调用工具，也不许编造",
+            "jsonschema",
+            "'local' is not of type",
+        )
+    ):
+        return True
+    return False
+    blob = (text or "").strip()
+    if not blob:
+        return True
+    if _looks_like_transport_error(blob):
+        return True
+    if _looks_like_provider_error(blob):
+        return True
+    if _looks_like_leak(blob):
+        return True
     return False
 
 
@@ -316,7 +337,7 @@ def serve(timeout: str | None = None, max_events: int = 0) -> int:
         print(identity_hint(), file=sys.stderr)
         return 2
     # Import-time copies may be stale after setup; rebind from ids module.
-    from . import ids as _ids
+    from ..core import ids as _ids
 
     global USER_OPEN_ID, BOT_OPEN_ID, P2P_CHAT_ID
     USER_OPEN_ID = _ids.USER_OPEN_ID

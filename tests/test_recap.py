@@ -96,7 +96,7 @@ class TodayEvidenceTests(unittest.TestCase):
                         _message(
                             "oc_social",
                             USER_OPEN_ID,
-                            "今天薅羊毛试了 Memento-S 会员",
+                            "今天薅羊毛试了会员",
                             50,
                             "om_social",
                         ),
@@ -115,7 +115,7 @@ class TodayEvidenceTests(unittest.TestCase):
         self.assertIn("预发环境还没上", bundle.context)
         self.assertNotIn("我今天干了什么", bundle.context)
         self.assertNotIn("om_noise", bundle.context)
-        self.assertNotIn("Memento-S", bundle.context)
+        self.assertNotIn("薅羊毛", bundle.context)
 
     def test_recap_falls_back_to_evidence_summary(self) -> None:
         with patch("partner.office.recap.run_lark", side_effect=self._fake_lark):

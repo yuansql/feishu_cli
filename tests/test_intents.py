@@ -69,6 +69,16 @@ class ParseIntentTests(unittest.TestCase):
         self.assertEqual(parse_intent("群列表").action, "chats")
         self.assertEqual(parse_intent("chats").action, "chats")
 
+    def test_chat_history_not_group_list(self) -> None:
+        for text in (
+            "读取和吴梦晨的飞书 CLI的聊天记录",
+            "读我和飞书CLI的聊天记录",
+            "聊天记录",
+            "读取聊天记录",
+        ):
+            self.assertEqual(parse_intent(text).action, "chat_history", text)
+        self.assertEqual(parse_intent("哪个群是产品评审").action, "chats")
+
     def test_which_group_is_chats_not_docs(self) -> None:
         first = parse_intent("软件发版 测试 孙萌测试是那个群")
         self.assertEqual(first.action, "chats")
@@ -101,6 +111,30 @@ class ParseIntentTests(unittest.TestCase):
         self.assertEqual(parse_intent("写周报").action, "write_weekly")
         self.assertEqual(parse_intent("生成周报").action, "write_weekly")
         self.assertEqual(parse_intent("帮我写周报").action, "write_weekly")
+        fill = parse_intent(
+            "https://it82yw7fgr.feishu.cn/wiki/QLg1wnATIiVTuXkUiHecNag7nSh 填写周报"
+        )
+        self.assertEqual(fill.action, "write_weekly")
+        self.assertIn("wiki/", fill.query)
+
+    def test_weekly_tasks_with_output_suffix(self) -> None:
+        for text in (
+            "本周任务",
+            "本周任务, 输出到消息中",
+            "本周任务，输出到消息中",
+            "生成本周任务",
+        ):
+            self.assertEqual(parse_intent(text).action, "weekly_tasks", text)
+        self.assertNotEqual(
+            parse_intent("本周任务, 输出到消息中").action,
+            "unknown",
+        )
+
+    def test_who_is_not_person_dump(self) -> None:
+        self.assertEqual(parse_intent("邱俊立是谁").action, "who")
+        self.assertEqual(parse_intent("邱俊立是谁").query, "邱俊立")
+        self.assertEqual(parse_intent("吴梦晨是谁?").action, "identity")
+        self.assertEqual(parse_intent("张三的回复如何").action, "person")
 
     def test_write_doc_from_template_phrase(self) -> None:
         intent = parse_intent("M8 plus 体验报告 给我写个这个?")

@@ -61,8 +61,6 @@ _PENDING_HINTS = ("还没", "没有上", "等", "待", "需要", "一会", "试�
 _NON_WORK_HINTS = (
     "薅羊毛",
     "会员",
-    "Memento-S",
-    "memento.run",
     "记忆 skill",
     "WorkBuddy",
     "捡钱",
@@ -444,24 +442,9 @@ def _fallback_summary(context: str) -> str:
         "巨量千川",
         "ICCID",
     )
-    for chat, role, body in records:
-        if role != "我" or not _is_substantive(body):
-            continue
-        if any(token in body for token in covered):
-            continue
-        done_state = any(hint in body for hint in _DONE_HINTS)
-        pending_state = any(hint in body for hint in _PENDING_HINTS)
-        contradicted = any(
-            hint in body
-            for hint in ("还没", "没有上", "进行中", "等上传", "尚未", "待测试")
-        )
-        item = f"{chat}：{body}"
-        if done_state and not contradicted:
-            add(done, item)
-        elif any(hint in body for hint in _WORK_HINTS) or pending_state:
-            add(progress, item)
-        if pending_state and (not done_state or contradicted):
-            add(pending, item)
+    # Do NOT dump "群名：聊天原文" into done/progress — that is the Cursor gap.
+    # Only curated rules above produce weekly/recap bullets.
+    _ = (covered, records)
 
     done = done[:6]
     progress = progress[:8]
@@ -480,6 +463,31 @@ def _fallback_summary(context: str) -> str:
         )
     )
     return "\n".join(lines)
+
+
+def curated_work_buckets(context: str) -> tuple[list[str], list[str], list[str]]:
+    """Structured bullets for weekly fill / fallback — never raw chat quotes."""
+    text = _fallback_summary(context or "")
+    done: list[str] = []
+    progress: list[str] = []
+    pending: list[str] = []
+    bucket = done
+    for line in text.splitlines():
+        s = line.strip()
+        if s.startswith("【今天确认做过】") or s.startswith("【本周完成】"):
+            bucket = done
+            continue
+        if s.startswith("【推进中】") or s.startswith("【进行中"):
+            bucket = progress
+            continue
+        if s.startswith("【待你确认】") or s.startswith("【问题"):
+            bucket = pending
+            continue
+        if s.startswith("- "):
+            item = s[2:].strip()
+            if item and "暂无" not in item and item not in bucket:
+                bucket.append(item)
+    return done[:6], progress[:8], pending[:6]
 
 
 def today_recap(

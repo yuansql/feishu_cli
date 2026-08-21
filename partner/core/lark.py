@@ -83,6 +83,7 @@ def run_lark(
     *,
     as_identity: str | None = "user",
     timeout: int = 60,
+    input_text: str | None = None,
 ) -> dict[str, Any]:
     binary = find_lark_cli()
     cmd = [str(binary), *args]
@@ -98,5 +99,6 @@ def run_lark(
         text=True,
         timeout=timeout,
         check=False,
+        input=input_text,
     )
     return parse_cli_output(proc.stdout or "", proc.stderr or "", proc.returncode)

@@ -61,6 +61,7 @@ lark-cli auth login --scope "calendar:calendar.event:read search:docs:read"
 | `feishu report 标题` | 生成本地 HTML 报告到 `~/.feishu-partner/reports/` |
 | `feishu memory` | 本地 Agents.md / 经验档案（`note` / `init` / `context`） |
 | `feishu eval` | 本地路由 fixtures + trace 评测 |
+| `feishu smoke` | **测试身份冒烟**（路由+行为门禁；`--live-write` 才真写飞书） |
 | `feishu versions` | 配置快照 publish / list / diff / rollback |
 | `feishu sandbox` | 查看本地沙箱路径与允许命令 |
 | `feishu workflow` | 列出本地 Workflow 及触发词 |
@@ -94,6 +95,15 @@ lark-cli 读用户身份办事 / 机器人身份回复
     │
     ▼
 飞书会话
+```
+
+
+## 飞书 Skills（本仓）
+
+官方 `lark-*` 技能正文在 `skills/`（约 26 个）。Cursor 通过 `.cursor/skills/` 软链发现；本机 Hermes/全局 Cursor 可：
+
+```bash
+bash scripts/sync-lark-skills.sh --local
 ```
 
 ## 安装到 PATH

@@ -66,6 +66,7 @@ def soul_md() -> str:
 
 材料里没有的进度、会议、人名不许编造。缺权限就照工具返回的原文说。
 问哪个群用 feishu_chats，不要搜文档；问某人回复用 feishu_person。
+问「X是谁」用 feishu_search / feishu_knowledge 归纳简介，不要用 feishu_person，不要甩聊天原文。
 最后只输出给用户看的正文，不要解释你是 AI，不要输出思考过程，不要把 FETCH 或工具名发给用户。
 """
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import re
 from datetime import timedelta, timezone
 from typing import Any
 from ..compose.formatters import _chat_tokens, _items, format_chats, format_lark_error
@@ -8,6 +10,7 @@ from ..routing.intents import Intent
 from ..core.lark import run_lark
 from .watch import format_inbox_digest
 from ..core.session import save_turn
+from .calendar_views import _agenda_range, _day_bounds
 
 CN_TZ = timezone(timedelta(hours=8))
 
@@ -30,6 +33,74 @@ def chats_text(query: str='') -> str:
             return format_chats({'ok': True, 'data': {'chats': merged}}, query=q)
     payload = run_lark(['im', '+chat-list', '--types=p2p,group', '--page-all', '--page-size', '50', '--sort', 'active_time'], as_identity='user')
     return format_chats(payload, query=q)
+
+
+def chat_history_text(query: str = '') -> str:
+    """Read recent messages in a known chat. Defaults to the work-partner P2P."""
+    from ..core.ids import P2P_CHAT_ID, display_name
+
+    q = (query or '').strip()
+    chat_id = ''
+    title = ''
+    partner_hints = (
+        '飞书cli',
+        '飞书 cli',
+        '工作伙伴',
+        '伙伴',
+        'feishu cli',
+        'feishu_cli',
+        display_name().lower() if display_name() else '',
+    )
+    folded = q.lower()
+    if not q or any(h and h in folded for h in partner_hints) or 'cli' in folded:
+        chat_id = P2P_CHAT_ID
+        title = '与工作伙伴（飞书 CLI）的单聊'
+    if not chat_id:
+        # Try resolve a chat by leftover keywords.
+        noise = (
+            '读取', '读一下', '看看', '看下', '查看', '拉一下',
+            '的聊天记录', '聊天记录', '消息记录', '会话记录', '聊天内容', '聊天',
+            '和', '与', '跟',
+        )
+        needle = q
+        for n in noise:
+            needle = needle.replace(n, ' ')
+        needle = re.sub(r'\s+', ' ', needle).strip()
+        if needle:
+            payload = run_lark(
+                ['im', '+chat-search', '--query', needle, '--disable-search-by-user', '--page-size', '5'],
+                as_identity='user',
+            )
+            for chat in _items(payload, 'chats', 'items'):
+                if not isinstance(chat, dict):
+                    continue
+                cid = str(chat.get('chat_id') or '')
+                if cid:
+                    chat_id = cid
+                    title = str(chat.get('name') or chat.get('chat_name') or needle)
+                    break
+    if not chat_id:
+        return (
+            '要读哪段聊天记录？可以说「读我和飞书 CLI 的聊天记录」，'
+            '或「读某某群的聊天记录」。找群名请说「哪个群」。'
+        )
+    rows = _recent_messages(chat_id)
+    if not rows:
+        payload = run_lark(
+            ['im', '+chat-messages-list', '--chat-id', chat_id, '--order', 'desc', '--page-size', '15', '--no-reactions'],
+            as_identity='user',
+        )
+        if payload.get('ok') is False:
+            return f'读聊天记录失败：\n{format_lark_error(payload)}'
+        return f'【{title or chat_id}】最近没有拉到消息。'
+    lines = [f'【{title or chat_id}·最近消息】']
+    for msg in reversed(rows[:20]):
+        line = _format_msg_line(msg, title or '对方')
+        if line:
+            lines.append(line)
+    if len(lines) == 1:
+        lines.append('（最近消息是空的或只有附件）')
+    return '\n'.join(lines)
 
 def _message_body(msg: dict[str, Any]) -> str:
     content = msg.get('content')
@@ -104,50 +175,123 @@ def _format_msg_line(msg: dict[str, Any], name: str) -> str:
         return f'- {when} {who}：{clip}'
     return f'- {who}：{clip}'
 
+def who_profile_text(name: str) -> str:
+    """Gather Feishu search + contact hits as materials for Hermes (not a chat dump)."""
+    person = (name or "").strip()
+    if not person:
+        return "说一下是谁，我去飞书里搜一圈再归纳。"
+    from .docs_io import docs_search_text
+
+    chunks = [f"【要介绍的人】{person}"]
+    try:
+        docs = docs_search_text(person)
+        if docs:
+            chunks.append("【云文档搜索】\n" + docs[:2500])
+    except Exception as exc:  # noqa: BLE001
+        chunks.append(f"【云文档搜索】失败：{exc}")
+    contact = run_lark(
+        ["contact", "+search-user", "--query", person, "--page-size", "5"],
+        as_identity="user",
+    )
+    if contact.get("ok") is False:
+        chunks.append("【通讯录】\n" + format_lark_error(contact)[:500])
+    else:
+        data = contact.get("data") if isinstance(contact.get("data"), dict) else {}
+        users = data.get("users") or data.get("items") or []
+        if isinstance(users, list) and users:
+            lines = ["【通讯录命中】"]
+            for user in users[:5]:
+                if not isinstance(user, dict):
+                    continue
+                uname = str(
+                    user.get("name")
+                    or user.get("localized_name")
+                    or user.get("user_name")
+                    or ""
+                ).strip()
+                dept = str(
+                    user.get("department_name")
+                    or user.get("department")
+                    or ""
+                ).strip()
+                oid = str(user.get("open_id") or user.get("user_id") or "").strip()
+                bit = uname or oid or "（无名）"
+                if dept:
+                    bit += f" · {dept}"
+                lines.append(f"- {bit}")
+            chunks.append("\n".join(lines))
+        else:
+            chunks.append("【通讯录】未命中同名同事（或无权限）。")
+    chunks.append(
+        "请根据以上材料用两三句话介绍此人与当前工作的关系；"
+        "材料不够就老实说不确定，禁止编造职级/项目；"
+        "禁止罗列聊天记录原文。"
+    )
+    return "\n\n".join(chunks)
+
+
 def person_text(query: str) -> str:
     """Look up someone's recent IM replies. Never searches docs."""
-    name = (query or '').strip()
+    name = (query or "").strip()
     if not name:
-        return '说一下是谁，我去翻最近怎么回的。'
-    lines = [f'【{name}最近怎么说】']
-    inbox_hits = [item for item in recent_items(days=14) if name in str(item.get('sender_name') or '') or name in str(item.get('text') or '') or name in str(item.get('chat_name') or '')]
+        return "说一下是谁，我去翻最近怎么回的。"
+    lines = [f"【{name}最近怎么说】"]
+    inbox_hits = [
+        item
+        for item in recent_items(days=14)
+        if name in str(item.get("sender_name") or "")
+        or name in str(item.get("text") or "")
+        or name in str(item.get("chat_name") or "")
+    ]
     if inbox_hits:
-        lines.append('收件箱里：')
+        lines.append("收件箱里：")
         for item in inbox_hits[:5]:
-            who = str(item.get('sender_name') or name).strip()
-            where = str(item.get('chat_name') or '群').strip()
-            text = str(item.get('text') or '').replace('\n', ' ').strip()
+            who = str(item.get("sender_name") or name).strip()
+            where = str(item.get("chat_name") or "群").strip()
+            text = str(item.get("text") or "").replace("\n", " ").strip()
             if len(text) > 120:
-                text = text[:120] + '…'
-            lines.append(f'- {who}（{where}）：{text}' if text else f'- {who}（{where}）')
-    payload = run_lark(['im', '+chat-search', '--query', name, '--page-size', '20'], as_identity='user')
-    chats = [chat for chat in _items(payload, 'chats', 'items') if isinstance(chat, dict)]
-    if payload.get('ok') is False and (not chats):
+                text = text[:120] + "…"
+            lines.append(
+                f"- {who}（{where}）：{text}" if text else f"- {who}（{where}）"
+            )
+    payload = run_lark(
+        ["im", "+chat-search", "--query", name, "--page-size", "20"],
+        as_identity="user",
+    )
+    chats = [
+        chat for chat in _items(payload, "chats", "items") if isinstance(chat, dict)
+    ]
+    if payload.get("ok") is False and (not chats):
         err = format_lark_error(payload)
         if len(lines) == 1:
             return err
         lines.append(err)
-        return '\n'.join(lines)
+        return "\n".join(lines)
     oid = _person_open_id(name, chats)
     shown = [_format_msg_line(msg, name) for msg in _sender_messages(oid)]
     shown = [line for line in shown if line][:8]
     if shown:
-        lines.append('最近发的：')
+        lines.append("最近发的：")
         lines.extend(shown)
-        return '\n'.join(lines)
+        return "\n".join(lines)
     found_msg = False
     for chat in chats[:3]:
-        cid = str(chat.get('chat_id') or '')
-        cname = str(chat.get('name') or '会话').strip()
-        mode = str(chat.get('chat_mode') or chat.get('chat_type') or '').lower()
+        cid = str(chat.get("chat_id") or "")
+        cname = str(chat.get("name") or "会话").strip()
+        mode = str(chat.get("chat_mode") or chat.get("chat_type") or "").lower()
         local: list[str] = []
         for msg in _recent_messages(cid):
             who = _message_who(msg)
-            sid = ''
-            sender = msg.get('sender')
+            sid = ""
+            sender = msg.get("sender")
             if isinstance(sender, dict):
-                sid = str(sender.get('id') or '')
-            if not ('p2p' in mode or name in who or name in cname or (oid and sid == oid)):
+                sid = str(sender.get("id") or "")
+            if not (
+                "p2p" in mode
+                or name in who
+                or name in cname
+                or (oid and sid == oid)
+            ):
                 continue
             line = _format_msg_line(msg, name)
             if line:
@@ -157,14 +301,21 @@ def person_text(query: str) -> str:
         if not local:
             continue
         found_msg = True
-        lines.append(f'{cname}：')
+        lines.append(f"{cname}：")
         lines.extend(local)
     if found_msg or inbox_hits:
-        return '\n'.join(lines)
+        return "\n".join(lines)
     if chats:
-        names = '、'.join((str(chat.get('name') or '').strip() for chat in chats[:5] if chat.get('name')))
-        return f'找到和「{name}」相关的会话（{names}），但最近没有可读的文字回复。'
-    return f'没找到「{name}」的会话或最近回复。我只能看你身份下搜得到的群/单聊；机器人不在的群看不见。也可以说「谁找我」。'
+        names = "、".join(
+            (
+                str(chat.get("name") or "").strip()
+                for chat in chats[:5]
+                if chat.get("name")
+            )
+        )
+        return f"找到和「{name}」相关的会话（{names}），但最近没有可读的文字回复。"
+    return f"没找到「{name}」的会话或最近回复。我只能看你身份下搜得到的群/单聊；机器人不在的群看不见。也可以说「谁找我」。"
+
 
 def inbox_text() -> str:
     return format_inbox_digest(recent_items(days=7))

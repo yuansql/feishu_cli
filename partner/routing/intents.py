@@ -67,7 +67,7 @@ _WRITE_WEEKLY = {
 _WEEKLY_CONTINUE = {"继续", "再写", "改人话", "写人话", "像人写"}
 _TASKS_EXACT = {"待办", "我的任务", "tasks", "todo", "待办事项"}
 _DIGEST_EXACT = {"今日待跟进", "催办", "待跟进"}
-_WEEKLY_TASKS_EXACT = {"生成本周任务", "本周任务", "生成任务清单"}
+_WEEKLY_TASKS_EXACT = {"生成本周任务", "本周任务", "生成任务清单", "本周任务清单"}
 _MINUTES_EXACT = {"纪要", "会议纪要", "妙记", "minutes"}
 _APPROVAL_EXACT = {"审批", "待审批", "我的审批", "approval"}
 _CHATS_EXACT = {"群列表", "群", "chats", "会话"}
@@ -148,6 +148,8 @@ class Intent:
 def strip_wake_prefix(text: str) -> str:
     raw = (text or "").strip()
     raw = re.sub(r"@_user_\d+", " ", raw)
+    # Drop leading 【标签】 markers (e.g. 【测…】今天) so short commands still match.
+    raw = re.sub(r"^【[^】]*】\s*", "", raw)
     raw = re.sub(r"\s+", " ", raw).strip()
     lowered = raw.lower()
     for prefix in WAKE_PREFIXES:
@@ -223,10 +225,82 @@ def looks_like_write_weekly(raw: str) -> bool:
         return False
     # 「本周的周报 / 查周报」是读，不是写
     if any(stop in text for stop in ("搜", "查", "读", "看一下")) and not any(
-        v in text for v in ("写", "生成", "起草", "出一份", "做一份")
+        v in text for v in ("写", "生成", "起草", "出一份", "做一份", "填")
     ):
         return False
-    return any(v in text for v in ("写", "生成", "起草", "出一份", "做一份", "做个"))
+    return any(
+        v in text
+        for v in (
+            "写",
+            "生成",
+            "起草",
+            "出一份",
+            "做一份",
+            "做个",
+            "填写",
+            "填一下",
+            "帮我填",
+            "填下",
+            "填上",
+        )
+    )
+
+
+def write_weekly_query(raw: str) -> str:
+    """Keep template URL (and light hint) for fill-in-place weekly."""
+    q = raw or ""
+    url_m = _URL_RE.search(q)
+    return url_m.group(0).rstrip(")。,，") if url_m else q.strip()
+
+
+def looks_like_identity(raw: str) -> bool:
+    text = _folded(raw)
+    return any(
+        p in text
+        for p in (
+            "你知道我是谁",
+            "我是谁",
+            "你认识我吗",
+            "知道我是谁吗",
+        )
+    )
+
+
+_WHO_RES = (
+    re.compile(r"^(.{2,16}?)是谁$"),
+    re.compile(r"^谁是(.{2,16}?)$"),
+    re.compile(r"^(.{2,16}?)是什么人$"),
+)
+
+
+def who_query(raw: str) -> str:
+    """「张三是谁」→ 人名；不是「怎么说/回复」。"""
+    text = _folded(raw)
+    text = re.sub(r"[？?。！!\s]+$", "", text).strip()
+    for cre in _WHO_RES:
+        match = cre.match(text)
+        if not match:
+            continue
+        name = re.sub(r"\s+", "", match.group(1)).strip("的")
+        if 2 <= len(name) <= 16 and name not in _NOT_PERSON:
+            return name
+    return ""
+
+
+def looks_like_who_is(raw: str) -> bool:
+    return bool(who_query(raw))
+
+
+def _is_owner_name(name: str) -> bool:
+    from ..core.ids import USER_NAMES, display_name
+
+    n = (name or "").strip()
+    if not n:
+        return False
+    owner = (display_name() or "").strip()
+    if owner and (n == owner or n in owner or owner in n):
+        return True
+    return any(n == str(x).strip() or n in str(x) for x in (USER_NAMES or []))
 
 
 def looks_like_tasks(raw: str) -> bool:
@@ -361,10 +435,21 @@ def task_done_hint(raw: str) -> str:
     return re.sub(r"\s+", " ", q).strip(" ：:，,")
 
 
+def looks_like_chat_history(raw: str) -> bool:
+    """Want message history in a known chat — not the session/group list."""
+    text = (raw or "").strip()
+    if not text:
+        return False
+    return any(k in text for k in ("聊天记录", "消息记录", "会话记录", "聊天内容"))
+
+
 def looks_like_chat_find(raw: str) -> bool:
     text = raw or ""
+    # Message history is a different intent — do not steal as chat-list search.
+    if looks_like_chat_history(text):
+        return False
     if "聊天" in text and any(
-        key in text for key in ("读取", "读", "查看", "看看", "看下", "聊天记录")
+        key in text for key in ("读取", "读", "查看", "看看", "看下")
     ):
         return True
     if "群" not in text:
@@ -448,6 +533,7 @@ _CLASSIFY_ACTIONS = frozenset(
         "search",
         "read",
         "person",
+        "who",
         "plan",
         "write_doc",
         "resolve",
@@ -494,9 +580,9 @@ def parse_classified(raw: str) -> Intent | None:
     if action not in _CLASSIFY_ACTIONS:
         return None
     query = str(data.get("query") or "").strip()
-    if action in {"search", "read", "person", "chats", "plan", "write_doc"} and not query:
+    if action in {"search", "read", "person", "who", "chats", "plan", "write_doc"} and not query:
         return None
-    if action not in {"search", "read", "person", "chats", "weekly", "plan", "write_doc"}:
+    if action not in {"search", "read", "person", "who", "chats", "weekly", "plan", "write_doc"}:
         query = ""
     return Intent(action=action, query=query)
 
@@ -553,9 +639,25 @@ def looks_like_task_cancel(raw: str) -> bool:
     return _folded(raw) in _TASK_CANCEL_EXACT
 
 
+def looks_like_weekly_tasks(raw: str) -> bool:
+    """本周任务清单（可带「输出到消息」等后缀），禁止掉进 unknown→Hermes 乱搜文档。"""
+    text = _folded(raw)
+    if text in _WEEKLY_TASKS_EXACT:
+        return True
+    if "本周任务" in text or "这周任务" in text:
+        return True
+    if "任务清单" in text and any(
+        v in text for v in ("生成", "输出", "发我", "私聊", "本周", "这周")
+    ):
+        return True
+    return False
+
+
 def looks_like_write_doc(raw: str) -> bool:
     text = raw or ""
     if text in _WRITE_WEEKLY:
+        return False
+    if looks_like_weekly_tasks(text):
         return False
     return any(hint in text for hint in _WRITE_DOC_HINTS)
 
@@ -591,7 +693,7 @@ def parse_intent(text: str) -> Intent:
         return Intent(action="aily")
     if folded in _DIGEST_EXACT or key in _DIGEST_EXACT:
         return Intent(action="digest")
-    if folded in _WEEKLY_TASKS_EXACT:
+    if looks_like_weekly_tasks(raw) or folded in _WEEKLY_TASKS_EXACT:
         return Intent(action="weekly_tasks")
     if looks_like_today_recap(raw):
         return Intent(action="today_recap")
@@ -603,11 +705,18 @@ def parse_intent(text: str) -> Intent:
         return Intent(action="brief")
     if folded in _TOMORROW_EXACT or key in _TOMORROW_EXACT:
         return Intent(action="tomorrow")
+    if looks_like_identity(raw):
+        return Intent(action="identity")
+    if looks_like_who_is(raw):
+        name = who_query(raw)
+        if _is_owner_name(name):
+            return Intent(action="identity")
+        return Intent(action="who", query=name)
     if looks_like_write_weekly(raw) or folded in _WRITE_WEEKLY:
-        return Intent(action="write_weekly")
+        return Intent(action="write_weekly", query=write_weekly_query(raw))
     if looks_like_write_doc(raw):
         if "周报" in raw:
-            return Intent(action="write_weekly")
+            return Intent(action="write_weekly", query=write_weekly_query(raw))
         return Intent(action="write_doc", query=write_doc_query(raw))
     if looks_like_local_report(raw):
         return Intent(action="plan", query=plan_query(raw) or raw)
@@ -635,12 +744,19 @@ def parse_intent(text: str) -> Intent:
         return Intent(action="inbox")
 
     url_m = _URL_RE.search(raw)
+    if url_m and (
+        "周报" in raw
+        and any(v in raw for v in ("填", "写", "生成", "起草"))
+    ):
+        return Intent(action="write_weekly", query=write_weekly_query(raw))
     if url_m and raw.startswith("http"):
         return Intent(action="read", query=url_m.group(0).rstrip(")。,，"))
 
     search_m = re.match(r"^(搜索|搜|search)\s*[:：]?\s*(.+)$", raw, re.I)
     if search_m:
-        return Intent(action="search", query=search_m.group(2).strip())
+        q = search_m.group(2).strip()
+        q = re.sub(r"^(一下|下)\s*", "", q).strip() or q
+        return Intent(action="search", query=q)
 
     if looks_like_resolve(raw):
         return Intent(action="resolve", query=raw)
@@ -650,6 +766,8 @@ def parse_intent(text: str) -> Intent:
         return Intent(action="weekly", query="next")
     if looks_like_weekly_talk(raw):
         return Intent(action="weekly")
+    if looks_like_chat_history(raw):
+        return Intent(action="chat_history", query=raw)
     if looks_like_chat_find(raw):
         return Intent(action="chats", query=chat_search_query(raw))
     if looks_like_person_talk(raw):

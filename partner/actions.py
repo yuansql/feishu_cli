@@ -39,6 +39,8 @@ from .office.docs_io import (
 )
 from .office.messaging import (
     chats_text,
+    chat_history_text,
+    who_profile_text,
     _message_body,
     _message_who,
     _recent_messages,
@@ -119,9 +121,22 @@ def _facts_for(intent: Intent) -> str:
     if intent.action == "weekly":
         return weekly_text(focus=intent.query if intent.query == "next" else "")
     if intent.action == "write_weekly":
-        return write_weekly_text()
-    if intent.action == "write_doc":
-        return write_doc_text(intent.query)
+        return write_weekly_text(intent.query)
+    if intent.action == "identity":
+        from .core.ids import USER_NAMES, display_name
+
+        name = display_name() or (USER_NAMES[0] if USER_NAMES else "")
+        if not name:
+            return "还没记住你的名字。请本机跑一次 `feishu setup --name 你的名字`。"
+        return (
+            f"你是{name}。"
+            "我是你的飞书工作伙伴（本机 feishu CLI），只服务你的单聊与已授权办公能力；"
+            "不会把你认成文档搜索结果里的别的主题。"
+        )
+    if intent.action == "who":
+        return who_profile_text(intent.query)
+    if intent.action == "person":
+        return person_text(intent.query)
     if intent.action == "tasks":
         return tasks_text()
     if intent.action == "minutes":
@@ -134,8 +149,8 @@ def _facts_for(intent: Intent) -> str:
         return read_text(intent.query)
     if intent.action == "chats":
         return chats_text(intent.query)
-    if intent.action == "person":
-        return person_text(intent.query)
+    if intent.action == "chat_history":
+        return chat_history_text(intent.query)
     if intent.action == "inbox":
         return inbox_text()
     if intent.action == "digest":
@@ -154,20 +169,6 @@ def _facts_for(intent: Intent) -> str:
         from .office.knowledge import knowledge_answer
 
         return knowledge_answer(intent.query or "")
-    if intent.action == "identity":
-        from .core.ids import config_path, display_name, identity_ready
-        from .compose.hermes_setup import profile_status_line
-
-        who = display_name() if identity_ready() else "未配置"
-        return "\n".join(
-            [
-                f"伙伴身份：{who}",
-                f"本机配置：{config_path()}",
-                "飞书取数：本机 lark-cli（user OAuth）经白名单 MCP",
-                "写入策略：本仓确认闸；Hermes 无写工具、永不 --yolo",
-                profile_status_line(),
-            ]
-        )
     if intent.action == "today_recap":
         return today_recap(intent.query or "我今天干了什么").text
     if intent.action == "plan":
@@ -300,6 +301,19 @@ def dispatch(
             chat_id,
             asked,
         )
+    if intent.action == "who":
+        materials = who_profile_text(intent.query)
+        if channel == "p2p" and not force_facts and hermes_available():
+            spoken = hermes_partner_turn(asked, seed_facts=materials)
+            if spoken:
+                if chat_id:
+                    save_turn(chat_id, kind="action", query=asked, action="who")
+                return spoken
+        # No Hermes: return search materials without the LLM instruction footer.
+        trimmed = materials.rsplit("请根据以上材料", 1)[0].strip()
+        if chat_id:
+            save_turn(chat_id, kind="action", query=asked, action="who")
+        return trimmed or materials
     if (
         intent.action == "write_doc"
         and chat_id
