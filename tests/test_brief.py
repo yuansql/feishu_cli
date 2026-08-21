@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone, timedelta
 import unittest
 
-from partner.brief import (
+from partner.office.brief import (
     agenda_entries,
     approval_priority_lines,
     clip_line,
@@ -23,8 +23,8 @@ from partner.brief import (
     user_spoke_after,
     work_priorities,
 )
-from partner.brief_card import brief_card, day_work_card
-from partner.schedule import BRIEF_LABEL, SERVE_LABEL, plist_body, serve_plist_body
+from partner.office.brief_card import brief_card, day_work_card
+from partner.office.schedule import BRIEF_LABEL, SERVE_LABEL, plist_body, serve_plist_body
 
 
 CN = timezone(timedelta(hours=8))
@@ -518,7 +518,7 @@ class PushOnceTests(unittest.TestCase):
         from pathlib import Path
         from unittest.mock import patch
 
-        from partner.brief import CN_TZ, push_brief
+        from partner.office.brief import CN_TZ, push_brief
 
         now = datetime(2026, 8, 18, 9, 0, tzinfo=CN_TZ)
         data = {
@@ -547,8 +547,8 @@ class PushOnceTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             stamp = Path(tmp) / "brief-sent.on"
-            with patch("partner.brief.STAMP", stamp):
-                with patch("partner.brief._collect", return_value=data):
+            with patch("partner.office.brief.STAMP", stamp):
+                with patch("partner.office.brief._collect", return_value=data):
                     with patch("partner.actions.send_card", side_effect=slow_card):
                         with patch("partner.actions.send_text"):
                             threads = [

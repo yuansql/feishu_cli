@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from partner.hermes_setup import (
+from partner.compose.hermes_setup import (
     PROFILE_NAME,
     ensure_profile,
     profile_config_text,

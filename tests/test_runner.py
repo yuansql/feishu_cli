@@ -7,9 +7,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from partner.intents import parse_intent
-from partner.planner import plan_steps
-from partner.runner import (
+from partner.routing.intents import parse_intent
+from partner.runtime.planner import plan_steps
+from partner.runtime.runner import (
     active_task_for_chat,
     cancel_task,
     continue_task,
@@ -23,7 +23,7 @@ from partner.runner import (
     tasks_dir,
     worker_once,
 )
-from partner.trace import read_traces
+from partner.core.trace import read_traces
 
 
 class PlanStepsTests(unittest.TestCase):
@@ -91,7 +91,7 @@ class TaskExecutionTests(unittest.TestCase):
 
     def test_run_next_executes_first_step(self) -> None:
         task = create_task("A6", "oc_p2p", plan_steps("A6"))
-        with patch("partner.runner.run_tool", return_value="【今日日程】\n- 提测"):
+        with patch("partner.runtime.runner.run_tool", return_value="【今日日程】\n- 提测"):
             msg = run_next(task["id"])
         loaded = load_task(task["id"])
         assert loaded is not None
@@ -108,7 +108,7 @@ class TaskExecutionTests(unittest.TestCase):
         task["steps"][0]["status"] = "done"
         task["steps"][0]["result"] = "日程：A6 提测"
         save_task(task)
-        with patch("partner.runner.run_write_tool", return_value="已生成本地 HTML") as write:
+        with patch("partner.runtime.runner.run_write_tool", return_value="已生成本地 HTML") as write:
             run_next(task["id"])
         write.assert_called_once()
         self.assertEqual(write.call_args[0][0], "report_write")
@@ -121,7 +121,7 @@ class TaskExecutionTests(unittest.TestCase):
         ]
         task = create_task("A6", "oc_p2p", steps)
         with patch(
-            "partner.runner.run_tool",
+            "partner.runtime.runner.run_tool",
             side_effect=lambda tool, _args: f"ok:{tool}",
         ):
             msg = run_all(task["id"])
@@ -133,10 +133,10 @@ class TaskExecutionTests(unittest.TestCase):
 
     def test_continue_task_runs_remaining(self) -> None:
         task = create_task("A6", "oc_p2p", plan_steps("A6"))
-        with patch("partner.runner.run_tool", return_value="ctx"):
+        with patch("partner.runtime.runner.run_tool", return_value="ctx"):
             run_next(task["id"])
         with patch(
-            "partner.runner.run_tool",
+            "partner.runtime.runner.run_tool",
             side_effect=lambda tool, _args: f"ok:{tool}",
         ):
             msg = continue_task("oc_p2p")
@@ -169,8 +169,8 @@ class AgentRuntimeTests(unittest.TestCase):
         )
         planned = [{"title": "汇总验收", "tool": "summarize", "args": {}}]
         with (
-            patch("partner.runner.run_tool", return_value="A6 已提测"),
-            patch("partner.runner.agent_plan_steps", return_value=planned),
+            patch("partner.runtime.runner.run_tool", return_value="A6 已提测"),
+            patch("partner.runtime.runner.agent_plan_steps", return_value=planned),
         ):
             self.assertTrue(worker_once(notify=False))
         loaded = load_task(task["id"])
@@ -197,8 +197,8 @@ class AgentRuntimeTests(unittest.TestCase):
         save_task(task)
         planned = [{"title": "汇总已知事实", "tool": "summarize", "args": {}}]
         with (
-            patch("partner.runner.run_tool", return_value="unexpected upstream failure"),
-            patch("partner.runner.agent_plan_steps", return_value=planned),
+            patch("partner.runtime.runner.run_tool", return_value="unexpected upstream failure"),
+            patch("partner.runtime.runner.agent_plan_steps", return_value=planned),
         ):
             run_all(task["id"])
         loaded = load_task(task["id"])
@@ -245,9 +245,13 @@ class DispatchTaskTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         os.environ["FEISHU_PARTNER_TASKS_DIR"] = self.tmp.name
+        os.environ["FEISHU_PARTNER_LEGACY_RUNNER"] = "1"
+
+    def tearDown(self) -> None:
+        os.environ.pop("FEISHU_PARTNER_LEGACY_RUNNER", None)
 
     def test_start_task_from_plan(self) -> None:
-        with patch("partner.runner.run_tool", side_effect=lambda tool, _a: f"ok:{tool}"):
+        with patch("partner.runtime.runner.run_tool", side_effect=lambda tool, _a: f"ok:{tool}"):
             msg = start_task("A6 上线前检查", "oc_p2p")
         self.assertIn("任务已创建", msg)
         rows = list(tasks_dir().glob("*.json"))
@@ -256,24 +260,48 @@ class DispatchTaskTests(unittest.TestCase):
     def test_dispatch_plan_uses_runner(self) -> None:
         from partner.actions import dispatch
 
-        with patch("partner.runner.run_tool", side_effect=lambda tool, _a: f"ok:{tool}"):
-            out = dispatch(
-                parse_intent("规划 A6 上线"),
-                user_text="规划 A6 上线",
-                channel="p2p",
-                chat_id="oc_plan",
-            )
+        with patch("partner.actions.hermes_available", return_value=False):
+            with patch(
+                "partner.runtime.runner.run_tool",
+                side_effect=lambda tool, _a: f"ok:{tool}",
+            ):
+                out = dispatch(
+                    parse_intent("规划 A6 上线"),
+                    user_text="规划 A6 上线",
+                    channel="p2p",
+                    chat_id="oc_plan",
+                )
         self.assertIn("任务已创建", out)
         self.assertTrue(list(tasks_dir().glob("*.json")))
+
+    def test_dispatch_plan_prefers_hermes(self) -> None:
+        from partner.actions import dispatch
+
+        with patch("partner.actions.hermes_available", return_value=True):
+            with patch(
+                "partner.actions.hermes_partner_turn",
+                return_value="先核对 A6 待办，再拆确认闸。",
+            ) as hermes:
+                with patch("partner.actions.start_task") as start:
+                    with patch("partner.actions.today_text", return_value="今天：A6"):
+                        out = dispatch(
+                            parse_intent("规划 A6 上线"),
+                            user_text="规划 A6 上线",
+                            channel="p2p",
+                            chat_id="oc_hermes_plan",
+                        )
+        hermes.assert_called_once()
+        start.assert_not_called()
+        self.assertIn("核对 A6", out)
 
     def test_plain_continue_with_active_task(self) -> None:
         from partner.actions import dispatch
 
         task = create_task("A6", "oc_cont", plan_steps("A6"))
-        with patch("partner.runner.run_tool", return_value="ctx"):
+        with patch("partner.runtime.runner.run_tool", return_value="ctx"):
             run_next(task["id"])
         self.assertIsNotNone(active_task_for_chat("oc_cont"))
-        with patch("partner.runner.run_tool", side_effect=lambda tool, _a: f"ok:{tool}"):
+        with patch("partner.runtime.runner.run_tool", side_effect=lambda tool, _a: f"ok:{tool}"):
             out = dispatch(
                 parse_intent("继续"),
                 user_text="继续",

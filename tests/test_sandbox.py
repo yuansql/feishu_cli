@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from partner.sandbox import resolve_path, sandbox_ls, sandbox_read, sandbox_run, sandbox_write
-from partner.tool_registry import execute_tool
+from partner.runtime.sandbox import resolve_path, sandbox_ls, sandbox_read, sandbox_run, sandbox_write
+from partner.runtime.tool_registry import execute_tool
 
 
 class SandboxTests(unittest.TestCase):

@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from partner.workflow import (
+from partner.runtime.workflow import (
     list_workflows_text,
     load_workflows,
     match_workflow,
@@ -26,7 +26,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIsNone(match_workflow("今天"))
 
     def test_run_workflow_executes_read_tools(self) -> None:
-        with patch("partner.workflow.execute_tool", return_value="ok-body") as mocked:
+        with patch("partner.runtime.workflow.execute_tool", return_value="ok-body") as mocked:
             body = run_workflow("approval_sweep", goal="审批清扫", chat_id="oc_wf")
         self.assertIn("Workflow 完成", body)
         self.assertGreaterEqual(mocked.call_count, 2)

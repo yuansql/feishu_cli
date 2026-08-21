@@ -1,0 +1,12 @@
+{
+  "brain": "auto",
+  "legacy_runner": false,
+  "max_steps": 8,
+  "no_llm": false,
+  "require_llm": false,
+  "hermes_bin": "",
+  "openai_api_key": "",
+  "openai_api_keys": [],
+  "openai_base_url": "https://delta-router.yangtzeailab.com/v1",
+  "openai_model": "Kimi-K2.6"
+}

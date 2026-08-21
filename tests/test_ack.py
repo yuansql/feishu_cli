@@ -5,8 +5,8 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from partner.ack import ACK_EMOJI, ack_line, should_ack_text
-from partner.serve import reply_user
+from partner.core.ack import ACK_EMOJI, ack_line, should_ack_text
+from partner.ops.serve import reply_user
 
 
 class AckLineTests(unittest.TestCase):
@@ -36,10 +36,10 @@ class AckLineTests(unittest.TestCase):
             order.append("dispatch")
             return "未完成待办 1 条"
 
-        with patch("partner.serve.add_reaction", side_effect=fake_react):
-            with patch("partner.serve.send_text", side_effect=fake_send):
-                with patch("partner.serve.dispatch", side_effect=fake_dispatch):
-                    from partner.events import InboundMessage
+        with patch("partner.ops.serve.add_reaction", side_effect=fake_react):
+            with patch("partner.ops.serve.send_text", side_effect=fake_send):
+                with patch("partner.ops.serve.dispatch", side_effect=fake_dispatch):
+                    from partner.core.events import InboundMessage
 
                     reply_user(
                         InboundMessage(
@@ -66,11 +66,11 @@ class AckLineTests(unittest.TestCase):
             order.append("dispatch")
             return "should-not-send"
 
-        with patch("partner.serve.add_reaction", return_value="ok"):
-            with patch("partner.serve.send_text", return_value="已发送。"):
-                with patch("partner.serve.send_style_card", side_effect=fake_card):
-                    with patch("partner.serve.dispatch", side_effect=fake_dispatch):
-                        from partner.events import InboundMessage
+        with patch("partner.ops.serve.add_reaction", return_value="ok"):
+            with patch("partner.ops.serve.send_text", return_value="已发送。"):
+                with patch("partner.ops.serve.send_style_card", side_effect=fake_card):
+                    with patch("partner.ops.serve.dispatch", side_effect=fake_dispatch):
+                        from partner.core.events import InboundMessage
 
                         reply_user(
                             InboundMessage(
@@ -85,7 +85,7 @@ class AckLineTests(unittest.TestCase):
         self.assertNotIn("dispatch", order)
 
     def test_reply_retries_transient_send(self) -> None:
-        from partner.events import InboundMessage
+        from partner.core.events import InboundMessage
 
         n_reply = {"n": 0}
 
@@ -97,9 +97,9 @@ class AckLineTests(unittest.TestCase):
                 return "已发送。"
             return "已发送。"
 
-        with patch("partner.serve.add_reaction", return_value="ok"):
-            with patch("partner.serve.send_text", side_effect=fake_send) as send:
-                with patch("partner.serve.dispatch", return_value="未完成待办 1 条"):
+        with patch("partner.ops.serve.add_reaction", return_value="ok"):
+            with patch("partner.ops.serve.send_text", side_effect=fake_send) as send:
+                with patch("partner.ops.serve.dispatch", return_value="未完成待办 1 条"):
                     reply_user(
                         InboundMessage(
                             chat_id="oc_p2p",
@@ -117,7 +117,7 @@ class AckLineTests(unittest.TestCase):
         self.assertEqual(reply_sends, ["未完成待办 1 条", "未完成待办 1 条"])
 
     def test_reply_retries_ssl_body_with_facts(self) -> None:
-        from partner.events import InboundMessage
+        from partner.core.events import InboundMessage
 
         ssl_err = (
             "[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of "
@@ -134,9 +134,9 @@ class AckLineTests(unittest.TestCase):
                 return "【张三最近怎么说】\n- 张三：方案可以"
             return ssl_err
 
-        with patch("partner.serve.add_reaction", return_value="ok"):
-            with patch("partner.serve.send_text", side_effect=fake_send):
-                with patch("partner.serve.dispatch", side_effect=fake_dispatch):
+        with patch("partner.ops.serve.add_reaction", return_value="ok"):
+            with patch("partner.ops.serve.send_text", side_effect=fake_send):
+                with patch("partner.ops.serve.dispatch", side_effect=fake_dispatch):
                     reply_user(
                         InboundMessage(
                             chat_id="oc_p2p",

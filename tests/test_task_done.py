@@ -9,8 +9,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from partner.actions import complete_task_text, dispatch
-from partner.intents import parse_intent
-from partner.session import save_turn
+from partner.routing.intents import parse_intent
+from partner.core.session import save_turn
 
 
 class TaskDoneIntentTests(unittest.TestCase):
@@ -44,7 +44,7 @@ class CompleteTaskTests(unittest.TestCase):
                 ]
             },
         }
-        with patch("partner.actions.run_lark") as run:
+        with patch("partner.office.tasks_io.run_lark") as run:
             run.side_effect = [payload, {"ok": True}]
             with patch("partner.actions.analyze_text") as analyze:
                 out = complete_task_text("A8设备邮寄回来（海外Esim卡处理）")
@@ -59,7 +59,7 @@ class CompleteTaskTests(unittest.TestCase):
             "ok": True,
             "data": {"items": [{"guid": "guid-a8", "summary": "A8设备邮寄回来（海外Esim卡处理）"}]},
         }
-        with patch("partner.actions.run_lark") as run:
+        with patch("partner.office.tasks_io.run_lark") as run:
             run.side_effect = [payload, {"ok": False, "error": {"message": "forbidden"}}]
             out = complete_task_text("A8设备邮寄回来")
         self.assertNotIn("已勾完成", out)

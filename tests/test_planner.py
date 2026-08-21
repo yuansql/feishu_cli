@@ -4,17 +4,17 @@ import os
 import unittest
 from unittest.mock import patch
 
-from partner.planner import agent_plan_steps, plan_text
+from partner.runtime.planner import agent_plan_steps, plan_text
 
 
 class PlannerTests(unittest.TestCase):
     def test_local_html_report_without_cloud_doc(self) -> None:
-        steps = __import__("partner.planner", fromlist=["plan_steps"]).plan_steps(
+        steps = __import__("partner.runtime.planner", fromlist=["plan_steps"]).plan_steps(
             "生成本地 HTML 工作报告，不写入"
         )
         tools = [str(s.get("tool")) for s in steps]
         self.assertNotIn("report_write", tools)
-        steps2 = __import__("partner.planner", fromlist=["plan_steps"]).plan_steps(
+        steps2 = __import__("partner.runtime.planner", fromlist=["plan_steps"]).plan_steps(
             "生成本地 HTML 工作报告"
         )
         tools2 = [str(s.get("tool")) for s in steps2]
@@ -40,7 +40,7 @@ class PlannerTests(unittest.TestCase):
             "【可直接用的飞书动作】\n- feishu today\n"
             "【需要确认】\n- 截止时间\n"
         )
-        with patch("partner.planner.rewrite_plan", return_value=shaped):
+        with patch("partner.runtime.planner.rewrite_plan", return_value=shaped):
             text = plan_text("A6 上线", "【待办】\n- A6")
         self.assertEqual(text, shaped)
 
@@ -53,7 +53,7 @@ class PlannerTests(unittest.TestCase):
             {"title": "建文档", "tool": "docs_create", "args": {"query": "A6"}}
           ]
         }"""
-        with patch("partner.planner._invoke_hermes", return_value=shaped):
+        with patch("partner.runtime.planner._invoke_hermes", return_value=shaped):
             steps = agent_plan_steps(
                 "整理 A6 并创建文档",
                 "A6 已提测",
@@ -67,7 +67,7 @@ class PlannerTests(unittest.TestCase):
         self.assertTrue(steps[1]["requires_confirm"])
 
     def test_agent_plan_rejects_non_json(self) -> None:
-        with patch("partner.planner._invoke_hermes", return_value="我建议先思考"):
+        with patch("partner.runtime.planner._invoke_hermes", return_value="我建议先思考"):
             steps = agent_plan_steps(
                 "A6",
                 "",
@@ -83,7 +83,7 @@ class PlannerTests(unittest.TestCase):
             {"title": "汇总", "tool": "summarize", "args": {}}
           ]
         }"""
-        with patch("partner.planner._invoke_hermes", return_value=shaped):
+        with patch("partner.runtime.planner._invoke_hermes", return_value=shaped):
             steps = agent_plan_steps(
                 "只读 A6，不写入任何内容",
                 "",
@@ -94,7 +94,7 @@ class PlannerTests(unittest.TestCase):
 
     def test_agent_plan_honors_no_llm_mode(self) -> None:
         with patch.dict(os.environ, {"FEISHU_PARTNER_NO_LLM": "1"}):
-            with patch("partner.planner._invoke_hermes") as invoke:
+            with patch("partner.runtime.planner._invoke_hermes") as invoke:
                 steps = agent_plan_steps(
                     "A6",
                     "",

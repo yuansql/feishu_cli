@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from partner.events import extract_inbound_message, should_reply
+from partner.core.events import extract_inbound_message, should_reply
 
 
 class ExtractInboundMessageTests(unittest.TestCase):

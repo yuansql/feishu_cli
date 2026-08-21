@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from partner.actions import dispatch
-from partner.artifact import (
+from partner.runtime.artifact import (
     _fallback_draft,
     apply_document_edit,
     artifact_turn,
@@ -18,7 +18,7 @@ from partner.artifact import (
     prepare_document_edit,
     save_artifact,
 )
-from partner.intents import parse_intent
+from partner.routing.intents import parse_intent
 
 
 DOC_URL = "https://example.feishu.cn/docx/trial"
@@ -80,9 +80,9 @@ class ArtifactTaskTests(unittest.TestCase):
                 }
             },
         }
-        with patch("partner.artifact.run_lark", return_value=payload) as run:
+        with patch("partner.runtime.artifact.run_lark", return_value=payload) as run:
             with patch(
-                "partner.artifact.draft_doc_edit",
+                "partner.runtime.artifact.draft_doc_edit",
                 return_value="1. 完成 A6/A8 问题修复\n2. 推进终端套餐查询",
             ):
                 reply = prepare_document_edit(
@@ -116,8 +116,8 @@ class ArtifactTaskTests(unittest.TestCase):
             "ok": True,
             "data": {"document": {"content": SOURCE_XML, "revision_id": 8}},
         }
-        with patch("partner.artifact.run_lark", return_value=payload):
-            with patch("partner.artifact.draft_doc_edit") as draft:
+        with patch("partner.runtime.artifact.run_lark", return_value=payload):
+            with patch("partner.runtime.artifact.draft_doc_edit") as draft:
                 reply = prepare_document_edit(
                     "oc_x",
                     f"{DOC_URL} 写到吴梦晨下面",
@@ -149,9 +149,9 @@ class ArtifactTaskTests(unittest.TestCase):
             "ok": True,
             "data": {"document": {"content": SOURCE_XML, "revision_id": 9}},
         }
-        with patch("partner.artifact.run_lark", return_value=payload):
+        with patch("partner.runtime.artifact.run_lark", return_value=payload):
             with patch(
-                "partner.artifact.draft_doc_edit",
+                "partner.runtime.artifact.draft_doc_edit",
                 return_value="新一节草稿",
             ) as draft:
                 prepare_document_edit(
@@ -183,9 +183,9 @@ class ArtifactTaskTests(unittest.TestCase):
             "ok": True,
             "data": {"document": {"content": SOURCE_XML, "revision_id": 9}},
         }
-        with patch("partner.artifact.run_lark", return_value=payload):
+        with patch("partner.runtime.artifact.run_lark", return_value=payload):
             with patch(
-                "partner.artifact.draft_doc_edit",
+                "partner.runtime.artifact.draft_doc_edit",
                 return_value="第三个月草稿",
             ):
                 prepare_document_edit(
@@ -238,7 +238,7 @@ class ArtifactTaskTests(unittest.TestCase):
             },
         }
         with patch(
-            "partner.artifact.run_lark",
+            "partner.runtime.artifact.run_lark",
             side_effect=[locate, updated, verified],
         ) as run:
             reply = apply_document_edit("oc_x")
@@ -291,7 +291,7 @@ class ArtifactTaskTests(unittest.TestCase):
             },
         }
         with patch(
-            "partner.artifact.run_lark",
+            "partner.runtime.artifact.run_lark",
             side_effect=[locate, updated, verified],
         ) as run:
             apply_document_edit("oc_x")
@@ -321,7 +321,7 @@ class ArtifactTaskTests(unittest.TestCase):
             "data": {"document": {"content": SOURCE_XML, "revision_id": 8}},
         }
         failed = {"ok": False, "error": {"message": "forbidden"}}
-        with patch("partner.artifact.run_lark", side_effect=[locate, failed]):
+        with patch("partner.runtime.artifact.run_lark", side_effect=[locate, failed]):
             reply = apply_document_edit("oc_x")
         self.assertIn("写入失败", reply)
         self.assertNotIn("任务结束", reply)
@@ -364,7 +364,7 @@ class ArtifactTaskTests(unittest.TestCase):
             "data": {"document": {"content": "<fragment></fragment>"}},
         }
         with patch(
-            "partner.artifact.run_lark",
+            "partner.runtime.artifact.run_lark",
             side_effect=[locate, updated, missing],
         ):
             reply = apply_document_edit("oc_x")

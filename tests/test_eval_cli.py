@@ -6,8 +6,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from partner.eval import eval_text, run_fixture_eval
-from partner.versions import diff_versions, list_versions, publish, rollback, versions_text
+from partner.ops.eval import eval_text, run_fixture_eval
+from partner.ops.versions import diff_versions, list_versions, publish, rollback, versions_text
 
 
 class EvalCliTests(unittest.TestCase):

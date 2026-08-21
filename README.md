@@ -1,10 +1,12 @@
 # 飞书工作伙伴
 
 自建**完全本地独立**的飞书办公智能体，功能对标 **飞书 Aily / 豆包工作伙伴**：在飞书里问、后台执行、在飞书里交付。**不对接 Aily 任何接口**，缺口在本仓库内单独开发。
+
+**技术栈**：Python 标准库 + 官方 `lark-cli`（手）+ **本机 Hermes**（脑，复杂句）+ LangGraph 后备（见 [RUNTIME_V2.md](RUNTIME_V2.md)）；包分层见 [ARCHITECTURE.md](ARCHITECTURE.md)。  
 公开能力、当前覆盖和开发路线图见 [AILY_ALIGNMENT.md](AILY_ALIGNMENT.md)。部署见 [DEPLOY.md](DEPLOY.md)。
 
 手：官方 [`lark-cli`](https://github.com/larksuite/cli)（本机已登录；应用名/ID 勿写入文档）。  
-脑：Cursor 对话（本仓 `SKILL.md`）。飞书单聊走本机 Hermes 隔离档案 `feishupartner`：只有白名单飞书取数 MCP，从不 `--yolo`，不给终端。群里只润色。
+脑：飞书单聊复杂句走 Hermes 隔离档案 `feishupartner`——经白名单 MCP 调用**你已授权的飞书 CLI 取数**，从不 `--yolo`，不给终端；短指令（今天/待办…）本仓硬路径。群里只润色。
 
 旧仓 `~/学习/@Agent/agent_feishu`（小飞 + Cloudflare 隧道）不再扩展。
 

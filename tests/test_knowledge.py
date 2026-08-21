@@ -9,11 +9,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 from partner.actions import create_task_item
-from partner.followup import add_goal_item, load_items
-from partner.intents import parse_intent
-from partner.knowledge import load_sources, search_prioritized
-from partner.planner import plan_steps
-from partner.runner import confirm_writes, create_task, load_task, run_all
+from partner.office.followup import add_goal_item, load_items
+from partner.routing.intents import parse_intent
+from partner.office.knowledge import load_sources, search_prioritized
+from partner.runtime.planner import plan_steps
+from partner.runtime.runner import confirm_writes, create_task, load_task, run_all
 
 
 class KnowledgeTests(unittest.TestCase):
@@ -60,7 +60,7 @@ class WriteBackTests(unittest.TestCase):
     def test_run_all_stops_at_write_confirm(self) -> None:
         goal = "创建待办并写入跟进账：A6"
         task = create_task(goal, "oc_x", plan_steps(goal))
-        with patch("partner.runner.run_tool", side_effect=lambda tool, _a: f"ok:{tool}"):
+        with patch("partner.runtime.runner.run_tool", side_effect=lambda tool, _a: f"ok:{tool}"):
             msg = run_all(task["id"])
         loaded = load_task(task["id"])
         assert loaded is not None
@@ -70,7 +70,7 @@ class WriteBackTests(unittest.TestCase):
     def test_confirm_writes_followup_and_task(self) -> None:
         goal = "创建待办并写入跟进账：A6 上线"
         task = create_task(goal, "oc_x", plan_steps(goal))
-        with patch("partner.runner.run_tool", side_effect=lambda tool, _a: f"ok:{tool}"):
+        with patch("partner.runtime.runner.run_tool", side_effect=lambda tool, _a: f"ok:{tool}"):
             run_all(task["id"])
         with patch(
             "partner.actions.create_task_item",
@@ -87,7 +87,7 @@ class WriteBackTests(unittest.TestCase):
 
 class CreateTaskItemTests(unittest.TestCase):
     def test_create_task_item_success(self) -> None:
-        with patch("partner.actions.run_lark", return_value={"ok": True, "data": {}}):
+        with patch("partner.office.tasks_io.run_lark", return_value={"ok": True, "data": {}}):
             out = create_task_item("A6 上线前检查")
         self.assertIn("已创建飞书待办", out)
 

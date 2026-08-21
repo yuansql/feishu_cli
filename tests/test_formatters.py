@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from partner.formatters import (
+from partner.compose.formatters import (
     format_agenda,
     format_chats,
     format_day_work,
@@ -21,7 +21,7 @@ from partner.formatters import (
     draft_doc_markdown,
     pick_personal_weekly,
 )
-from partner.lark import parse_cli_output
+from partner.core.lark import parse_cli_output
 
 
 class FormattersTests(unittest.TestCase):
@@ -227,7 +227,7 @@ class FormattersTests(unittest.TestCase):
         self.assertNotIn("<title>", text)
 
     def test_topic_brief_is_not_search_dump(self) -> None:
-        from partner.formatters import format_topic_brief, looks_like_clarify
+        from partner.compose.formatters import format_topic_brief, looks_like_clarify
 
         text = format_topic_brief(
             "A6",
@@ -458,7 +458,7 @@ class FormattersTests(unittest.TestCase):
         self.assertNotIn("研发部周会", text)
 
     def test_chat_tokens_keeps_测试(self) -> None:
-        from partner.formatters import _chat_tokens
+        from partner.compose.formatters import _chat_tokens
 
         self.assertIn("测试", _chat_tokens("写完了需要交给测试人员的"))
 

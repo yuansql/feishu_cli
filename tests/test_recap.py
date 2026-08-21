@@ -8,15 +8,15 @@ from pathlib import Path
 from unittest.mock import patch
 
 from partner.actions import dispatch
-from partner.ids import P2P_CHAT_ID, USER_OPEN_ID
-from partner.intents import Intent, parse_intent
-from partner.recap import (
+from partner.core.ids import P2P_CHAT_ID, USER_OPEN_ID
+from partner.routing.intents import Intent, parse_intent
+from partner.office.recap import (
     DayRecap,
     collect_today_evidence,
     looks_like_recap_followup,
     today_recap,
 )
-from partner.session import load_turn, save_turn
+from partner.core.session import load_turn, save_turn
 
 CN_TZ = timezone(timedelta(hours=8))
 
@@ -107,7 +107,7 @@ class TodayEvidenceTests(unittest.TestCase):
         raise AssertionError(args)
 
     def test_collects_work_context_and_excludes_bot_loop(self) -> None:
-        with patch("partner.recap.run_lark", side_effect=self._fake_lark):
+        with patch("partner.office.recap.run_lark", side_effect=self._fake_lark):
             bundle = collect_today_evidence(self.now)
         self.assertEqual(bundle.message_count, 5)
         self.assertIn("AI中台接口对接群", bundle.context)
@@ -118,7 +118,7 @@ class TodayEvidenceTests(unittest.TestCase):
         self.assertNotIn("Memento-S", bundle.context)
 
     def test_recap_falls_back_to_evidence_summary(self) -> None:
-        with patch("partner.recap.run_lark", side_effect=self._fake_lark):
+        with patch("partner.office.recap.run_lark", side_effect=self._fake_lark):
             result = today_recap("我今天干了什么", now=self.now)
         self.assertIn("A8 接口", result.text)
         self.assertIn("预发", result.text)
@@ -126,7 +126,7 @@ class TodayEvidenceTests(unittest.TestCase):
         self.assertGreater(result.evidence_count, 0)
 
     def test_followup_focuses_pending_without_raw_message_ids(self) -> None:
-        with patch("partner.recap.run_lark", side_effect=self._fake_lark):
+        with patch("partner.office.recap.run_lark", side_effect=self._fake_lark):
             bundle = collect_today_evidence(self.now)
         result = today_recap(
             "继续确认",

@@ -8,7 +8,7 @@ import unittest
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from partner.mcp_http import create_server
+from partner.ops.mcp_http import create_server
 
 
 class McpHttpTests(unittest.TestCase):
@@ -84,7 +84,7 @@ class McpHttpTests(unittest.TestCase):
             }
         )
         self.assertIn("acceptance-1", reply["result"]["content"][0]["text"])
-        from partner.aily import load_aily_config
+        from partner.ops.aily import load_aily_config
 
         config = load_aily_config()
         self.assertTrue(config.get("probed_at"))

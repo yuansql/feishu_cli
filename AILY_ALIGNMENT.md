@@ -20,13 +20,11 @@
 本机 feishu serve / CLI / Cron / Webhook
         │
         ▼
-Local Agent Runtime（唯一内核 · 深化 runner.py）
-  ├─ 模型推理 / Workflow / 知识问答 / 混合调度
-  ├─ 任务模式：后台 worker + 持久状态 + 通知
-  ├─ Multi-Agent：本地 researcher/executor/writer 子角色（已落地）
-  ├─ 本地沙箱：隔离目录 + 命令白名单（已落地）
-  ├─ 本地 HTML 报告：report_write + feishu report（已落地）
-  └─ ToolRegistry：runner / MCP / Hermes 统一工具契约（已落地）
+partner 分层运行时（见 ARCHITECTURE.md）
+  core → routing → runtime / office → compose → ops
+  ├─ TaskRunner：observe→plan→act→verify→replan
+  ├─ Workflow DSL / ToolRegistry / 本地沙箱
+  └─ 办公闭环：简报、跟进、DayRecap、写周报（聊天证据）
         │
         ▼
 lark-cli（user 读办事 / bot 收发）+ 确认闸 + 回读验真
@@ -87,6 +85,6 @@ MCP HTTP（`feishu mcp-http`）仅作**可选对外扩展**（Cursor/Hermes 等�
 
 | 项 | 结果 |
 |---|---|
-| 全量单测 | **297 passed**（`python3 -m unittest discover -s tests -q`） |
+| 全量单测 | **305 passed**（`python3 -m unittest discover -s tests -q`） |
 | `feishu setup` / `feishu doctor` | 身份闸 + OAuth 探针 |
 | `feishu report` | 本地 HTML 落盘 `~/.feishu-partner/reports/` |

@@ -8,10 +8,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from partner.events import extract_card_action, extract_inbound_message
-from partner.intents import parse_intent
-from partner.llm import should_partner
-from partner.resolved import (
+from partner.core.events import extract_card_action, extract_inbound_message
+from partner.routing.intents import parse_intent
+from partner.compose.llm import should_partner
+from partner.routing.resolved import (
     is_resolved,
     mark_resolved,
     match_pending,
@@ -181,7 +181,7 @@ class LedgerTests(unittest.TestCase):
         self.assertTrue(is_resolved("om:om_live"))
 
     def test_solved_closes_colleague_followup_not_person_dump(self) -> None:
-        from partner.followup import load_items, save_items
+        from partner.office.followup import load_items, save_items
 
         os.environ["FEISHU_PARTNER_FOLLOWUPS"] = str(Path(self.tmp.name) / "followups.json")
         self.addCleanup(os.environ.pop, "FEISHU_PARTNER_FOLLOWUPS", None)
@@ -204,7 +204,7 @@ class LedgerTests(unittest.TestCase):
         self.assertEqual(load_items()[0]["status"], "done")
 
     def test_quoted_reply_closes_exact_followup_for_same_person(self) -> None:
-        from partner.followup import load_items, save_items
+        from partner.office.followup import load_items, save_items
 
         save_items(
             [
@@ -238,7 +238,7 @@ class LedgerTests(unittest.TestCase):
         self.assertEqual(statuses["fu:zhou-app"], "done")
 
     def test_stale_quoted_reply_does_not_close_another_followup(self) -> None:
-        from partner.followup import load_items, save_items
+        from partner.office.followup import load_items, save_items
 
         save_items(
             [
@@ -261,7 +261,7 @@ class LedgerTests(unittest.TestCase):
         self.assertEqual(load_items()[0]["status"], "open")
 
     def test_weak_hint_two_followups_asks_which(self) -> None:
-        from partner.followup import load_items, save_items
+        from partner.office.followup import load_items, save_items
 
         os.environ["FEISHU_PARTNER_FOLLOWUPS"] = str(Path(self.tmp.name) / "followups.json")
         self.addCleanup(os.environ.pop, "FEISHU_PARTNER_FOLLOWUPS", None)
@@ -293,7 +293,7 @@ class LedgerTests(unittest.TestCase):
         self.assertEqual(statuses["fu:zhou"], "open")
 
     def test_already_finished_closes_followup_by_task_text(self) -> None:
-        from partner.followup import load_items, save_items
+        from partner.office.followup import load_items, save_items
 
         save_items(
             [

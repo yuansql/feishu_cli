@@ -8,8 +8,8 @@ from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
-from partner.events import extract_card_action, extract_inbound_message
-from partner.followup import (
+from partner.core.events import extract_card_action, extract_inbound_message
+from partner.office.followup import (
     apply_action,
     digest_buckets,
     extract_assignee_b,
@@ -28,9 +28,9 @@ from partner.followup import (
     should_sync_user_chats,
     weekly_rows,
 )
-from partner.followup_card import digest_card
-from partner.intents import parse_intent
-from partner.llm import should_partner
+from partner.office.followup_card import digest_card
+from partner.routing.intents import parse_intent
+from partner.compose.llm import should_partner
 
 
 CN = timezone(timedelta(hours=8))
@@ -425,7 +425,7 @@ class BitableScanTests(unittest.TestCase):
         self.assertTrue(any("王五" in title for title in titles))
 
     def test_matrix_record_list_shape(self) -> None:
-        from partner.bitable import _fields_of, _records_of
+        from partner.office.bitable import _fields_of, _records_of
 
         recs = _records_of(
             {
@@ -534,7 +534,7 @@ class WorkAssignTests(unittest.TestCase):
                 ],
                 path,
             )
-            with patch("partner.followup.scan_recent_p2p", return_value=1) as scan:
+            with patch("partner.office.followup.scan_recent_p2p", return_value=1) as scan:
                 text = followups_for_command(path=path)
         scan.assert_called()
         self.assertIn("体验总结", text)
@@ -593,7 +593,7 @@ class DigestPushOnceTests(unittest.TestCase):
         import threading
         import time
 
-        from partner.followup import CN_TZ, push_digest
+        from partner.office.followup import CN_TZ, push_digest
 
         now = datetime(2026, 8, 18, 9, 0, tzinfo=CN_TZ)
         barrier = threading.Barrier(2)
@@ -610,10 +610,10 @@ class DigestPushOnceTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             stamp = Path(tmp) / "digest-sent.on"
-            with patch("partner.followup.DIGEST_STAMP", stamp):
-                with patch("partner.followup.scan_recent_p2p"):
+            with patch("partner.office.followup.DIGEST_STAMP", stamp):
+                with patch("partner.office.followup.scan_recent_p2p"):
                     with patch(
-                        "partner.followup.digest_payload",
+                        "partner.office.followup.digest_payload",
                         return_value={
                             "today": "2026-08-18",
                             "due": [],

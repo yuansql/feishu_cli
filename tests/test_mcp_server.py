@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from partner.mcp_server import handle
+from partner.ops.mcp_server import handle
 
 
 class FeishuMcpTests(unittest.TestCase):
@@ -21,7 +21,7 @@ class FeishuMcpTests(unittest.TestCase):
         self.assertNotIn("feishu_write_weekly", names)
 
     def test_call_today(self) -> None:
-        with patch("partner.mcp_server.call_mcp_tool", return_value="日程：A6 提测"):
+        with patch("partner.ops.mcp_server.call_mcp_tool", return_value="日程：A6 提测"):
             resp = handle(
                 {
                     "jsonrpc": "2.0",

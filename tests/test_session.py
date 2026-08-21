@@ -9,8 +9,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from partner.actions import dispatch
-from partner.intents import Intent, parse_intent
-from partner.session import looks_like_followup, pick_index, save_turn
+from partner.routing.intents import Intent, parse_intent
+from partner.core.session import looks_like_followup, pick_index, save_turn
 
 
 class TaskIntentTests(unittest.TestCase):

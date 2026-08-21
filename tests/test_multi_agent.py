@@ -4,7 +4,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from partner.multi_agent import MultiAgentResult, RoleBrief, coordinate, enrich_facts_for_plan
+from partner.runtime.multi_agent import MultiAgentResult, RoleBrief, coordinate, enrich_facts_for_plan
 
 
 class MultiAgentTests(unittest.TestCase):
@@ -38,7 +38,7 @@ class MultiAgentTests(unittest.TestCase):
             executor=RoleBrief("executor", "执行", "e", "model"),
             writer=RoleBrief("writer", "交付", "w", "model"),
         )
-        with patch("partner.multi_agent._model_coordinate", return_value=payload):
+        with patch("partner.runtime.multi_agent._model_coordinate", return_value=payload):
             result = coordinate("测试目标", "some facts")
         self.assertEqual(result.researcher.source, "model")
 

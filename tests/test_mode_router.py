@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from partner.intents import Intent, parse_intent
-from partner.mode_router import looks_like_knowledge_qa, route_request
+from partner.routing.intents import Intent, parse_intent
+from partner.routing.mode_router import looks_like_knowledge_qa, route_request
 
 
 class ModeRouterTests(unittest.TestCase):

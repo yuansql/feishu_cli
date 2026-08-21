@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from partner.llm import (
+from partner.compose.llm import (
     _brief_prompt,
     _extract_reply,
     _is_usable_reply,
@@ -37,7 +37,7 @@ class HermesArgvTests(unittest.TestCase):
         self.assertNotIn("--yolo", argv)
         self.assertIn("-p", argv)
         self.assertEqual(argv[argv.index("-p") + 1], "feishupartner")
-        self.assertEqual(argv[argv.index("--max-turns") + 1], "6")
+        self.assertEqual(argv[argv.index("--max-turns") + 1], "12")
         self.assertNotIn("--ignore-rules", argv)
 
     def test_extract_drops_box_and_session(self) -> None:
@@ -93,7 +93,7 @@ class HermesArgvTests(unittest.TestCase):
         from pathlib import Path
         from unittest.mock import patch
 
-        from partner.llm import _invoke_hermes
+        from partner.compose.llm import _invoke_hermes
 
         ssl = (
             "[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of "
@@ -112,8 +112,8 @@ class HermesArgvTests(unittest.TestCase):
                 return Proc("", ssl)
             return Proc("今天先把 A6 提测收掉。\n")
 
-        with patch("partner.llm.find_hermes", return_value=Path("/usr/bin/hermes")):
-            with patch("partner.llm.subprocess.run", side_effect=fake_run):
+        with patch("partner.compose.llm.find_hermes", return_value=Path("/usr/bin/hermes")):
+            with patch("partner.compose.llm.subprocess.run", side_effect=fake_run):
                 text = _invoke_hermes("hi", timeout=5)
         self.assertEqual(calls["n"], 2)
         self.assertIn("A6", text)
@@ -159,18 +159,18 @@ class HermesArgvTests(unittest.TestCase):
             "【可直接用的飞书动作】\n- feishu today\n"
             "【需要确认】\n- 截止时间\n"
         )
-        with patch("partner.llm._invoke_hermes", return_value=good):
+        with patch("partner.compose.llm._invoke_hermes", return_value=good):
             self.assertEqual(rewrite_plan("A6 上线", "【待办】\n- A6"), good.strip())
-        with patch("partner.llm._invoke_hermes", return_value="随便做一下就行"):
+        with patch("partner.compose.llm._invoke_hermes", return_value="随便做一下就行"):
             self.assertEqual(rewrite_plan("A6 上线", "【待办】\n- A6"), "")
 
     def test_doc_draft_rejects_provider_errors(self) -> None:
         from unittest.mock import patch
 
         error = "LLM provider internal error: litellm.InternalServerError"
-        with patch("partner.llm._invoke_hermes", return_value=error):
+        with patch("partner.compose.llm._invoke_hermes", return_value=error):
             self.assertEqual(draft_doc_edit("写两句", "原文", "事实"), "")
-        with patch("partner.llm._invoke_hermes", return_value="1. 完成 A6 修复"):
+        with patch("partner.compose.llm._invoke_hermes", return_value="1. 完成 A6 修复"):
             self.assertEqual(
                 draft_doc_edit("写一句", "原文", "A6 已完成"),
                 "1. 完成 A6 修复",

@@ -4,7 +4,7 @@ import os
 import tempfile
 import unittest
 
-from partner.aily import (
+from partner.ops.aily import (
     CAPABILITIES,
     alignment_score,
     alignment_target_score,

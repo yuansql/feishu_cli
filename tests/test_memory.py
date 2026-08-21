@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from partner.memory import (
+from partner.office.memory import (
     append_experience,
     ensure_agents_md,
     memory_cli,
@@ -14,7 +14,7 @@ from partner.memory import (
     note_task_outcome,
     recent_experience,
 )
-from partner.workflow import run_workflow
+from partner.runtime.workflow import run_workflow
 
 
 class MemoryTests(unittest.TestCase):
@@ -52,7 +52,7 @@ class MemoryTests(unittest.TestCase):
 
 class WorkflowConditionTests(unittest.TestCase):
     def test_when_skips_inbox_without_keyword(self) -> None:
-        with patch("partner.workflow.execute_tool", return_value="ok") as mocked:
+        with patch("partner.runtime.workflow.execute_tool", return_value="ok") as mocked:
             body = run_workflow("mention_followup", goal="点名跟进 看今天", chat_id="oc_x")
         self.assertIn("条件未满足", body)
         tools = [call.args[0] for call in mocked.call_args_list]
@@ -61,7 +61,7 @@ class WorkflowConditionTests(unittest.TestCase):
         self.assertNotIn("inbox", tools)
 
     def test_when_runs_inbox_with_keyword(self) -> None:
-        with patch("partner.workflow.execute_tool", return_value="ok") as mocked:
+        with patch("partner.runtime.workflow.execute_tool", return_value="ok") as mocked:
             run_workflow("mention_followup", goal="点名跟进 谁找我了", chat_id="oc_x")
         tools = [call.args[0] for call in mocked.call_args_list]
         self.assertIn("inbox", tools)

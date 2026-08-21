@@ -1,4 +1,4 @@
-from partner.cli import main
+from partner.ops.cli import main
 
 if __name__ == "__main__":
     raise SystemExit(main())

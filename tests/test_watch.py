@@ -6,8 +6,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from partner.events import extract_inbound_message, should_reply
-from partner.watch import consider, format_inbox_digest, format_watch_push, should_watch
+from partner.core.events import extract_inbound_message, should_reply
+from partner.office.watch import consider, format_inbox_digest, format_watch_push, should_watch
 
 
 USER = "ou_user_wmc"
@@ -98,8 +98,7 @@ class WatchDecideTests(unittest.TestCase):
         self.assertFalse(should_watch(cmd, user_open_id=USER, bot_open_id=BOT))
 
     def test_inbox_digest_and_dedup(self) -> None:
-        from partner import inbox
-
+        from partner.core import inbox
         msg = _group(
             "@_user_1 处理退换货",
             mentions=[{"id": USER, "name": "吴梦晨"}],

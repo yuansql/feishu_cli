@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from partner.actions import write_doc_text
-from partner.intents import parse_intent
+from partner.routing.intents import parse_intent
 
 
 class WriteDocTests(unittest.TestCase):
@@ -52,7 +52,7 @@ class WriteDocTests(unittest.TestCase):
                 }
             return {"ok": False, "error": {"message": "unexpected"}}
 
-        with patch("partner.actions.run_lark", side_effect=fake_lark):
+        with patch("partner.office.docs_io.run_lark", side_effect=fake_lark):
             text = write_doc_text("M8 plus 体验报告")
         self.assertIn("已生成云文档", text)
         self.assertIn("docx/new", text)

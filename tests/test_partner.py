@@ -9,8 +9,8 @@ import unittest
 from unittest.mock import patch
 
 from partner.actions import dispatch, partner_reply
-from partner.cli import main
-from partner.intents import Intent, parse_intent
+from partner.ops.cli import main
+from partner.routing.intents import Intent, parse_intent
 
 
 class PartnerLoopTests(unittest.TestCase):
@@ -37,16 +37,31 @@ class PartnerLoopTests(unittest.TestCase):
         partner.assert_not_called()
         self.assertEqual(out, "搜到两份文档")
 
-    def test_p2p_send_stays_facts(self) -> None:
-        with patch("partner.actions.partner_reply") as partner:
-            with patch("partner.actions._facts_for", return_value="已发送"):
+    def test_unknown_complex_prefers_hermes(self) -> None:
+        with patch("partner.actions.hermes_available", return_value=True):
+            with patch(
+                "partner.actions.hermes_partner_turn",
+                return_value="我先看了 digest，今天优先跟测试群。",
+            ) as hermes:
                 out = dispatch(
-                    Intent(action="send", query="hi", chat_id="oc_x"),
-                    user_text="hi",
+                    Intent(action="unknown", query="帮我梳理一下今天该优先跟谁"),
+                    user_text="帮我梳理一下今天该优先跟谁",
                     channel="p2p",
+                    chat_id="oc_hermes_unknown",
                 )
-        partner.assert_not_called()
-        self.assertEqual(out, "已发送")
+        hermes.assert_called_once()
+        self.assertIn("优先跟测试群", out)
+
+    def test_unknown_complex_falls_back_nudge_without_hermes(self) -> None:
+        with patch("partner.actions.hermes_available", return_value=False):
+            out = dispatch(
+                Intent(action="unknown", query="帮我梳理一下今天该优先跟谁呀？？"),
+                user_text="帮我梳理一下今天该优先跟谁呀？？",
+                channel="p2p",
+                chat_id="oc_nudge",
+            )
+        self.assertIn("今天", out)
+        self.assertIn("待办", out)
 
 
     def test_ssl_stdout_keeps_facts(self) -> None:

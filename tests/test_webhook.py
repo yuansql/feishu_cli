@@ -11,13 +11,13 @@ import unittest
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from partner.tool_registry import (
+from partner.runtime.tool_registry import (
     execute_tool,
     mcp_tools,
     read_tools,
     write_tools,
 )
-from partner.webhook import create_server, verify_signature
+from partner.ops.webhook import create_server, verify_signature
 
 
 class ToolRegistryTests(unittest.TestCase):
@@ -30,6 +30,13 @@ class ToolRegistryTests(unittest.TestCase):
         names = {n for n, _d in mcp_tools()}
         self.assertIn("feishu_parity_probe", names)
         self.assertIn("feishu_today", names)
+        self.assertIn("feishu_digest", names)
+        self.assertIn("feishu_day_recap", names)
+        self.assertIn("feishu_memory", names)
+        self.assertIn("feishu_weekly_tasks", names)
+        # Writes stay off MCP
+        self.assertNotIn("feishu_task_create", names)
+        self.assertNotIn("feishu_docs_create", names)
 
     def test_write_requires_confirmation(self) -> None:
         with self.assertRaises(RuntimeError):

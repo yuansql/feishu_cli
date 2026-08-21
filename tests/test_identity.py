@@ -7,10 +7,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from partner import ids
-from partner.report import render_html, report_from_goal, write_report
-from partner.setup import setup_text
-from partner.tool_registry import execute_tool
+from partner.core import ids
+from partner.office.report import render_html, report_from_goal, write_report
+from partner.ops.setup import setup_text
+from partner.runtime.tool_registry import execute_tool
 
 
 _ENV_KEYS = (
@@ -121,8 +121,8 @@ class SetupTests(unittest.TestCase):
                 }
             raise AssertionError(args)
 
-        with patch("partner.setup.run_lark", side_effect=fake_lark):
-            with patch("partner.hermes_setup.ensure_profile", return_value=True):
+        with patch("partner.ops.setup.run_lark", side_effect=fake_lark):
+            with patch("partner.compose.hermes_setup.ensure_profile", return_value=True):
                 text = setup_text(name="测试员", force=True)
         self.assertIn("已写入", text)
         self.assertTrue(self.cfg.is_file())

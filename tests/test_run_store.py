@@ -4,7 +4,7 @@ import os
 import tempfile
 import unittest
 
-from partner.run_store import init_db, lookup_trigger, record_trigger
+from partner.core.run_store import init_db, lookup_trigger, record_trigger
 
 
 class RunStoreTests(unittest.TestCase):

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from partner.intents import looks_like_bare_search, parse_classified, parse_intent
+from partner.routing.intents import looks_like_bare_search, parse_classified, parse_intent
 
 
 class ParseIntentTests(unittest.TestCase):
@@ -138,6 +138,16 @@ class ParseIntentTests(unittest.TestCase):
             self.assertEqual(intent.action, "person", text)
             self.assertEqual(intent.query, name, text)
             self.assertFalse(looks_like_bare_search(text), text)
+
+    def test_open_asks_are_not_bare_search(self) -> None:
+        for text in (
+            "帮我梳理一下今天该优先跟谁",
+            "接下来怎么安排",
+            "能不能总结一下风险",
+        ):
+            self.assertFalse(looks_like_bare_search(text), text)
+        self.assertTrue(looks_like_bare_search("A6接口"))
+        self.assertTrue(looks_like_bare_search("登录态刷新"))
 
     def test_classified_json_to_intent(self) -> None:
         hit = parse_classified('{"action":"person","query":"马丽敏"}')

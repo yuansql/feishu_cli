@@ -4,7 +4,7 @@ import os
 import tempfile
 import unittest
 
-from partner.trace import emit_trace, read_traces
+from partner.core.trace import emit_trace, read_traces
 
 
 class TraceTests(unittest.TestCase):

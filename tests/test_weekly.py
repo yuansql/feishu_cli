@@ -5,7 +5,7 @@ from datetime import datetime
 import unittest
 
 from partner.actions import _week_bounds
-from partner.intents import parse_intent
+from partner.routing.intents import parse_intent
 
 
 class WeekBoundsTests(unittest.TestCase):
@@ -30,6 +30,14 @@ class AskWeeklyIntentTests(unittest.TestCase):
             ).action,
             "weekly",
         )
+
+    def test_week_activity_and_write_weekly_aliases(self) -> None:
+        self.assertEqual(parse_intent("本周干了什么?").action, "weekly")
+        self.assertEqual(parse_intent("这周忙了啥").action, "weekly")
+        self.assertEqual(parse_intent("写个周报").action, "write_weekly")
+        self.assertEqual(parse_intent("帮我写周报").action, "write_weekly")
+        self.assertEqual(parse_intent("写周报").action, "write_weekly")
+        self.assertEqual(parse_intent("本周的周报").action, "weekly")
 
     def test_next_week_plan_is_weekly_not_search(self) -> None:
         for text in ("下周计划", "吴梦晨的下周计划", "下周安排"):

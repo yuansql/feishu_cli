@@ -1,7 +1,7 @@
 # CONTEXT
 
 飞书工作伙伴（自建 CLI）。身份与应用 ID 只在本机 `lark-cli` / 环境变量，不写进文档。
-
+架构：Python 标准库 + lark-cli + Hermes；分层见 `ARCHITECTURE.md`（core/routing/runtime/office/compose/ops）。
 领域词：lark-cli、工作伙伴、user 身份办事、bot 身份收发、缺权限明示、不代登 OAuth。
 
 边界：本地独立对标 Aily 办公能力，**不对接 Aily 接口**；全部缺口在本仓开发。Hermes 禁止 --yolo；单聊走隔离档案 `feishupartner` + 白名单 `feishu mcp`（无终端）；群里只润色；仓内零密钥；飞书权威失败则不假装成功。Hermes SSL/断线原文不进飞书，回落已取材料。

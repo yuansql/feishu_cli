@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from partner.actions import dispatch, person_text
-from partner.intents import parse_intent
+from partner.routing.intents import parse_intent
 
 
 def _chat_search(name: str, chat_id: str = "oc_p2p_z") -> dict:
@@ -45,7 +45,7 @@ def _sender_hits(who: str, text: str) -> dict:
 
 class PersonIntentDispatchTests(unittest.TestCase):
     def test_person_text_uses_chat_not_docs(self) -> None:
-        with patch("partner.actions.run_lark") as run:
+        with patch("partner.office.messaging.run_lark") as run:
             run.side_effect = [
                 _chat_search("张三"),
                 _members("张三"),

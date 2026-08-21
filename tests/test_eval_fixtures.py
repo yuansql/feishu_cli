@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import unittest
 
-from partner.intents import parse_intent
-from partner.resolved import looks_like_resolve, resolve_text
+from partner.routing.intents import parse_intent
+from partner.routing.resolved import looks_like_resolve, resolve_text
 
 
 class EvalIntentFixtures(unittest.TestCase):
@@ -36,7 +36,7 @@ class EvalResolveFixtures(unittest.TestCase):
 
 class EvalBadReplyFixtures(unittest.TestCase):
     def test_litellm_provider_error_is_bad_reply(self) -> None:
-        from partner.serve import looks_like_bad_reply
+        from partner.ops.serve import looks_like_bad_reply
 
         err = (
             "LLM provider internal error (no retry): litellm.InternalServerError: "

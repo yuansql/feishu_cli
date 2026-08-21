@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from partner.rag import (
+from partner.office.rag import (
     append_chunks,
     chunk_markdown,
     expand_query,
