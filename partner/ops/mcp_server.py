@@ -24,7 +24,11 @@ def handle(message: dict[str, Any]) -> dict[str, Any] | None:
             "result": {
                 "protocolVersion": requested if requested in SUPPORTED_PROTOCOLS else PROTOCOL,
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "feishu-partner", "version": "2"},
+                "serverInfo": {
+                    "name": "feishu-partner",
+                    "version": "3",
+                    "description": "Read-only Feishu facts via allowlisted lark-cli (user OAuth). No send/write/yolo.",
+                },
             },
         }
     if method == "notifications/initialized" or method == "initialized":

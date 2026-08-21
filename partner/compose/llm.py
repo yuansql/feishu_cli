@@ -425,8 +425,8 @@ def _partner_prompt(user_text: str, facts: str, *, with_tools: bool) -> str:
             "优先用 feishu_* 工具取材料，可以多轮调用再回答。\n"
             "问哪个群、交给测试的群：调用 feishu_chats（可带 query），不要搜文档。\n"
             "问某人回复/怎么说/回了没：调用 feishu_person，query 用人名，不要搜文档。\n"
-            "问今天干了什么：feishu_day_recap；待跟进：feishu_digest；记忆：feishu_memory。\n"
-            "不要用终端、不要改文件、不要发消息、不要创建文档/待办。\n"
+            "问今天干了什么：feishu_day_recap；待跟进：feishu_digest；记忆：feishu_memory；制度问答：feishu_knowledge。\n"
+            "不确定授权状态可调 feishu_identity。不要用终端、不要改文件、不要发消息、不要创建文档/待办。\n"
             "禁止把思考、指令或 FETCH 行发给用户；只输出给用户看的正文。\n"
         )
     else:

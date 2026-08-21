@@ -825,7 +825,7 @@ def help_text() -> str:
 表格艾特：先 `feishu followup --setup-tables`，再把要扫的表写进本机 bitable.json 的 scan_tables（3 分钟轮询，不是 messages-search）。
 
 只有「搜 关键词」或很短的主题词才搜文档。问某人回复、删待办、详细点、听不懂不会拿去搜。
-单聊里材料不够我会自己再取今天/待办/周报（隔离 Hermes，不碰你电脑终端），不会在群里调工具。
+单聊里复杂句由本机 Hermes 经白名单 MCP 调你已授权的飞书 CLI 取数（不碰终端、不写飞书）；短指令（今天/待办…）本仓硬路径。材料不够时隔离 Hermes 可再取数，不会在群里调工具。
 群里@你或点名指派，机器人在那个群且 serve 开着才会记/推。
 
 不会做：aily 工作台/额度/虚拟电脑、Hermes YOLO 接群。电脑没开 `feishu serve` 时，飞书里不会回。

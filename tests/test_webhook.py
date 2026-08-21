@@ -34,6 +34,8 @@ class ToolRegistryTests(unittest.TestCase):
         self.assertIn("feishu_day_recap", names)
         self.assertIn("feishu_memory", names)
         self.assertIn("feishu_weekly_tasks", names)
+        self.assertIn("feishu_knowledge", names)
+        self.assertIn("feishu_identity", names)
         # Writes stay off MCP
         self.assertNotIn("feishu_task_create", names)
         self.assertNotIn("feishu_docs_create", names)

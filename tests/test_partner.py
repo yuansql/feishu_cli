@@ -63,6 +63,18 @@ class PartnerLoopTests(unittest.TestCase):
         self.assertIn("今天", out)
         self.assertIn("待办", out)
 
+    def test_short_today_skips_hermes_partner_turn(self) -> None:
+        with patch("partner.actions.hermes_partner_turn") as hermes:
+            with patch("partner.actions.today_text", return_value="今天：日程A"):
+                out = dispatch(
+                    Intent(action="today"),
+                    user_text="今天",
+                    channel="p2p",
+                    chat_id="oc_today_short",
+                )
+        hermes.assert_not_called()
+        self.assertIn("日程A", out)
+
 
     def test_ssl_stdout_keeps_facts(self) -> None:
         ssl_err = (
