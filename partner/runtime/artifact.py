@@ -18,7 +18,7 @@ from ..compose.llm import draft_doc_edit
 CN_TZ = timezone(timedelta(hours=8))
 _DEFAULT = Path.home() / ".feishu-partner" / "artifacts.json"
 _URL_RE = re.compile(r"https://[^\s]*feishu\.cn/[^\s]+")
-_MONTH_RE = re.compile(r"入职第[一二三四五六七八九十\d]+个月")
+_MONTH_RE = re.compile(r"(?:入职)?第[一二三四五六七八九十\d]+个月")
 _SUBSECTIONS = (
     "工作完成情况",
     "工作安排",
@@ -93,16 +93,24 @@ def save_artifact(chat_id: str, task: dict[str, Any]) -> None:
     tmp.replace(path)
 
 
-def observe_document(chat_id: str, doc_url: str, source: str) -> None:
+def observe_document(
+    chat_id: str,
+    doc_url: str,
+    source: str,
+    *,
+    instruction: str = "",
+) -> None:
+    section = _section_hint(instruction)
+    marker = _marker_hint(instruction, section)
     save_artifact(
         chat_id,
         {
             "kind": "doc_edit",
             "status": "observed",
             "doc_url": (doc_url or "").strip(),
-            "instruction": "",
-            "section": "",
-            "marker": "",
+            "instruction": (instruction or "").strip(),
+            "section": section,
+            "marker": marker,
             "anchor_block_id": "",
             "anchor_label": "",
             "draft": "",
@@ -130,14 +138,19 @@ def artifact_turn(task: dict[str, Any] | None, raw: str) -> str:
     text = re.sub(r"\s+", "", raw or "")
     if text in _CLOSE:
         return "close"
+    # 已有草稿 → 写啊 = 确认写入；只观察过 → 写啊 = 先起草。
     if text in _CONFIRM and status in {"ready", "verify_failed"}:
         return "confirm"
+    if text in _CONFIRM and status in {"observed", "needs_target"}:
+        return "revise"
     if any(key in (raw or "") for key in _REVISE):
-        if status in {"ready", "done", "verify_failed"}:
+        if status in {"ready", "done", "verify_failed", "observed", "needs_target"}:
             return "revise"
         if any(key in (raw or "") for key in ("写", "填", "改", "补")):
             return "revise"
-    if _MONTH_RE.search(raw or "") and any(key in (raw or "") for key in ("写", "填", "改")):
+    if _MONTH_RE.search(raw or "") and any(
+        key in (raw or "") for key in ("写", "填", "改", "加", "添")
+    ):
         return "revise"
     if any(key in (raw or "") for key in ("不是新写", "改这个文档", "继续改")):
         return "revise"
@@ -238,7 +251,10 @@ def _section_hint(instruction: str) -> str:
 
 def _marker_hint(instruction: str, section: str) -> str:
     text = instruction or ""
-    match = re.search(r"(?:写到|填到|加到|放到)(.{1,32}?)(?:下面|下边|后面|部分|那里)", text)
+    match = re.search(
+        r"(?:写到|填到|加到|放到|添加到|补充到|更新到)(.{1,32}?)(?:下面|下边|后面|部分|那里|中)",
+        text,
+    )
     if not match:
         return next(
             (
@@ -312,11 +328,80 @@ def _plain_source(xml: str) -> str:
     return "\n".join(dict.fromkeys(line for line in lines if line))
 
 
+_EXPAND_CUES = frozenset(
+    {
+        "多一点",
+        "太少",
+        "少了",
+        "扩写",
+        "再写",
+        "补充",
+        "补充一下",
+        "再多点",
+        "详细点",
+    }
+)
+
+
+def _is_expand_cue(text: str) -> bool:
+    folded = re.sub(r"\s+", "", text or "")
+    return folded in {re.sub(r"\s+", "", cue) for cue in _EXPAND_CUES} or any(
+        cue in (text or "") for cue in _EXPAND_CUES
+    ) and len(folded) <= 12
+
+
+def work_facts_from_week_chats() -> str:
+    """Build draft materials from this week's Feishu IM — not calendar weekly_text junk."""
+    from ..office.calendar_views import _week_bounds
+    from ..office.recap import collect_week_evidence, curated_work_buckets
+    from ..compose.formatters import format_lark_error, format_tasks
+
+    start, end = _week_bounds()
+    bundle = collect_week_evidence(start, end)
+    if bundle.error:
+        return f"【本周飞书对话】取数失败：{bundle.error}"
+    done, progress, pending = curated_work_buckets(bundle.context or "")
+    tasks = run_lark(
+        ["task", "+get-my-tasks", "--complete=false", "--page-limit", "20"],
+        as_identity="user",
+    )
+    task_blob = format_tasks(tasks) if tasks.get("ok") is not False else format_lark_error(tasks)
+    lines = [
+        f"周期：{start.date().isoformat()} ~ {end.date().isoformat()}",
+        f"本周检索消息 {bundle.message_count} 条，工作相关证据 {bundle.evidence_count} 条。",
+        "",
+        "【本周完成·从对话归纳】",
+    ]
+    if done:
+        lines.extend(f"- {item}" for item in done)
+    else:
+        lines.append("- （对话里暂未归纳出明确完成项）")
+    lines.append("")
+    lines.append("【推进中】")
+    if progress:
+        lines.extend(f"- {item}" for item in progress)
+    else:
+        lines.append("- （暂无）")
+    if pending:
+        lines.append("")
+        lines.append("【待确认】")
+        lines.extend(f"- {item}" for item in pending[:5])
+    lines.append("")
+    lines.append("【未完成待办】")
+    lines.append(task_blob[:2000] if task_blob else "- （无）")
+    lines.append("")
+    lines.append("【对话证据摘录】")
+    lines.append((bundle.context or "（空）")[:5500])
+    return "\n".join(lines)
+
+
 def _draft_limit(instruction: str) -> int:
     match = re.search(r"(\d+)\s*(?:句|条|点)", instruction or "")
-    if not match:
-        return 4
-    return max(1, min(8, int(match.group(1))))
+    if match:
+        return max(1, min(12, int(match.group(1))))
+    if _is_expand_cue(instruction) or "扩写" in (instruction or "") or "多列" in (instruction or ""):
+        return 10
+    return 8
 
 
 def _fallback_draft(
@@ -326,18 +411,72 @@ def _fallback_draft(
     previous: str = "",
 ) -> str:
     limit = _draft_limit(instruction)
+    junk = (
+        "飞书权威失败",
+        "缺权限",
+        "任务规划",
+        "工作内容",
+        "工作安排",
+        "这周我这边的情况",
+        "【草稿】",
+        "准备修改",
+        "周期：",
+        "本周检索消息",
+        "检索消息总数",
+        "对话证据摘录",
+        "未完成待办",
+    )
     candidates: list[str] = []
-    factual_pool = f"{previous}\n{work_facts}".strip() or source
-    for raw in factual_pool.splitlines():
-        line = re.sub(r"^[\s>*#\-\d.、]+", "", raw).strip()
-        if len(line) < 4 or line in candidates:
+    # Prefer curated week bullets over previous junk draft / meta headers.
+    factual_pool = work_facts or ""
+    prefer = ""
+    if "【本周完成" in factual_pool:
+        # Only take curated buckets, not the long 对话证据摘录 tail.
+        prefer = factual_pool.split("【对话证据摘录】", 1)[0]
+    pool = prefer or f"{work_facts}\n{previous}\n{source}".strip()
+    for raw in pool.splitlines():
+        line = re.sub(r"^[\s>*#\-]+", "", raw).strip()
+        line = re.sub(r"^\d+[\.、)\]]\s*", "", line).strip()
+        if line.startswith("【") and line.endswith("】"):
             continue
-        if any(token in line for token in ("飞书权威失败", "缺权限", "任务规划")):
+        if len(line) < 6 or line in candidates:
+            continue
+        if any(token in line for token in junk):
+            continue
+        if line.startswith("周期：") or "检索消息" in line:
+            continue
+        # Drop broken date fragments like "/17–8/23" or bare "/17".
+        if re.fullmatch(r"[/–\-~\d\s]+", line):
+            continue
+        if re.match(r"^/\d+", line) and len(line) < 20:
             continue
         candidates.append(line[:180])
         if len(candidates) >= limit:
             break
+    if not candidates and previous.strip():
+        return previous.strip()
     return "\n".join(f"{index}. {line}" for index, line in enumerate(candidates, 1))
+
+
+def _looks_like_bad_draft(text: str) -> bool:
+    blob = (text or "").strip()
+    if not blob:
+        return True
+    lines = [ln.strip() for ln in blob.splitlines() if ln.strip()]
+    if len(lines) < 2:
+        return True
+    bad_hits = 0
+    for line in lines:
+        body = re.sub(r"^[\s\d.、\-]+", "", line)
+        if body in {"工作内容", "工作安排", "【工作内容】"} or body.startswith("【"):
+            bad_hits += 1
+        if re.match(r"^/\d+", body) and len(body) < 24:
+            bad_hits += 1
+        if "这周我这边的情况" in body:
+            bad_hits += 1
+        if body.startswith("周期：") or "检索消息" in body:
+            bad_hits += 1
+    return bad_hits >= max(2, len(lines) // 2)
 
 
 def prepare_document_edit(
@@ -348,7 +487,27 @@ def prepare_document_edit(
     doc_url: str = "",
 ) -> str:
     active = load_artifact(chat_id) or {}
-    explicit = _URL_RE.search(f"{instruction} {doc_url}")
+    # 「写啊」 alone: reuse last instruction / section from the observed doc.
+    instr = (instruction or "").strip()
+    expand = _is_expand_cue(instr)
+    if re.sub(r"\s+", "", instr) in _CONFIRM:
+        instr = str(active.get("instruction") or "").strip() or instr
+    if expand:
+        base = str(active.get("instruction") or "").strip() or (
+            "把本周实际工作写进目标章节"
+        )
+        draft_instruction = (
+            f"{base}\n\n【本轮】用户要求扩写：根据【工作事实】里本周飞书对话，"
+            "列举可核验的工作条目（目标 6-10 条）；保留上一版仍正确的条目并补充新的；"
+            "禁止残缺日期（如 /17）、禁止把【工作内容】这类标题当条目、禁止空话。"
+        )
+        store_instruction = base
+    else:
+        draft_instruction = instr if instr not in _CONFIRM else (
+            str(active.get("instruction") or "") or instruction
+        )
+        store_instruction = draft_instruction
+    explicit = _URL_RE.search(f"{draft_instruction} {doc_url} {instruction}")
     target_url = (
         (explicit.group(0).rstrip(")。,，") if explicit else "")
         or (doc_url or "").strip()
@@ -356,14 +515,17 @@ def prepare_document_edit(
     )
     if not target_url:
         return "还没有目标文档。先发文档链接并说要改哪一节。"
-    explicit_section = _section_hint(instruction)
+    explicit_section = _section_hint(draft_instruction) or _section_hint(
+        str(active.get("instruction") or "")
+    )
     section = explicit_section or str(active.get("section") or "")
-    explicit_marker = _marker_hint(instruction, section)
+    explicit_marker = _marker_hint(draft_instruction, section)
     marker = (
         explicit_marker
         if explicit_marker or explicit_section
         else str(active.get("marker") or "")
     )
+    facts = (work_facts or "").strip() or work_facts_from_week_chats()
     payload = _fetch_target(target_url, section, marker)
     if payload.get("ok") is False:
         return _error_text(payload)
@@ -390,7 +552,7 @@ def prepare_document_edit(
                 "kind": "doc_edit",
                 "status": "needs_target",
                 "doc_url": target_url,
-                "instruction": instruction,
+                "instruction": store_instruction,
                 "section": section,
                 "marker": marker,
                 "source_snapshot": _plain_source(source_xml)[:24000],
@@ -406,20 +568,25 @@ def prepare_document_edit(
     )
     previous = str(active.get("draft") or "") if same_target else ""
     draft = draft_doc_edit(
-        instruction,
+        draft_instruction,
         plain,
-        work_facts,
+        facts,
         previous_draft=previous,
     )
+    if draft and _looks_like_bad_draft(draft):
+        draft = ""
     if not draft:
-        draft = _fallback_draft(instruction, plain, work_facts, previous)
+        draft = _fallback_draft(draft_instruction, plain, facts, previous)
     if not draft:
-        return "目标位置已找到，但现有材料不足以起草；没有执行写入。"
+        return (
+            "目标位置已找到，但本周飞书对话里还不够写成条目。"
+            "可以说「多一点」，或先「读一下消息」确认本周证据。"
+        )
     task = {
         "kind": "doc_edit",
         "status": "ready",
         "doc_url": target_url,
-        "instruction": instruction,
+        "instruction": store_instruction,
         "section": section,
         "marker": marker,
         "anchor_block_id": target.block_id,

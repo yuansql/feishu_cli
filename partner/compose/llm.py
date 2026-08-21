@@ -12,9 +12,14 @@ ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 BOX_RE = re.compile(r"^[┌└│].*$", re.M)
 _THINK_MARKERS = (
     "用户要求",
+    "用户问",
     "材料内容",
     "我需要",
     "可以这样组织",
+    "让我组织一下",
+    "可能的回复",
+    "需要根据提供的材料",
+    "用第一人称写回复",
     "不要解释你是",
     "不要输出思考",
     "只根据材料",
@@ -54,6 +59,7 @@ _PROVIDER_ERROR_MARKERS = (
 _COMPOSE_ACTIONS = frozenset(
     {"weekly", "tasks", "unknown", "minutes", "approval"}
 )
+# D1（2026-08-21）：P2P 默认 Hermes 归纳。仅写入闸 + 极短硬指令留在此集合（直接回事实/卡）。
 _NO_PARTNER = frozenset(
     {
         "send",
@@ -71,14 +77,9 @@ _NO_PARTNER = frozenset(
         "task_continue",
         "task_status",
         "task_confirm",
+        "task_cancel",
         "aily",
-        # Fast facts: don't block the single-threaded serve on Hermes.
-        "search",
-        "read",
         "help",
-        "chats",
-        "chat_history",
-        "inbox",
         "identity",
     }
 )
@@ -239,6 +240,34 @@ def _is_usable_reply(text: str, *, limit: int = 1200) -> bool:
     if len(text) > limit:
         return False
     return True
+
+
+def salvage_spoken_reply(text: str, *, limit: int = 600) -> str:
+    """If Hermes leaked thinking, keep the short final answer when recoverable."""
+    blob = (text or "").strip()
+    if not blob:
+        return ""
+    if _is_usable_reply(blob, limit=limit):
+        return blob
+    for sep in ("可能的回复：", "可能的回复:", "最终回复：", "最终回复:", "给用户：", "给用户:"):
+        if sep not in blob:
+            continue
+        tail = blob.rsplit(sep, 1)[-1].strip()
+        for para in reversed([p.strip() for p in re.split(r"\n\s*\n", tail) if p.strip()]):
+            # Drop duplicated think restarts inside the tail.
+            if any(m in para for m in _THINK_MARKERS):
+                continue
+            if _is_usable_reply(para, limit=limit):
+                return para
+    # Last short line without markers.
+    for line in reversed([ln.strip() for ln in blob.splitlines() if ln.strip()]):
+        if len(line) < 20 or len(line) > limit:
+            continue
+        if any(m in line for m in _THINK_MARKERS):
+            continue
+        if _is_usable_reply(line, limit=limit):
+            return line
+    return ""
 
 
 def _extract_reply(raw: str) -> str:
@@ -436,6 +465,8 @@ def _partner_prompt(user_text: str, facts: str, *, with_tools: bool) -> str:
             "问某人回复/怎么说/回了没：调用 feishu_person，query 用人名，不要搜文档。\n"
             "问「X是谁」：用 feishu_search / feishu_knowledge / 通讯录线索归纳两三句话，"
             "禁止调用 feishu_person，禁止罗列聊天原文或「最近怎么说」。\n"
+            "【材料】若已是聊天记录/搜索列表/收件箱：用几句归纳回答；"
+            "最多点名 3 条关键信息，禁止把材料原文整段贴回用户。\n"
             "问今天干了什么：feishu_day_recap；待跟进：feishu_digest；记忆：feishu_memory；制度问答：feishu_knowledge。\n"
             "不确定授权状态可调 feishu_identity。不要用终端、不要改文件、不要发消息、不要创建文档/待办。\n"
             "禁止把思考、指令或 FETCH 行发给用户；只输出给用户看的正文。\n"
@@ -484,9 +515,9 @@ def hermes_partner_turn(
     )
     if parse_fetch(text):
         return ""
-    if not text or "Error:" in text[:80] or not _is_usable_reply(text, limit=2500):
-        return ""
-    return text
+    if text and _is_usable_reply(text, limit=2500):
+        return text
+    return salvage_spoken_reply(text or "", limit=1200)
 
 
 def rewrite_human(user_text: str, facts: str, *, timeout: int = 45) -> str:
@@ -582,15 +613,18 @@ def draft_doc_edit(
     if os.environ.get("FEISHU_PARTNER_NO_LLM") == "1":
         return ""
     prompt = (
-        f"你是{_owner()}的飞书工作伙伴。根据用户要求、目标文档片段和工作事实，"
-        "起草将写入文档的一小段正文。\n"
+        f"你是{_owner()}的飞书工作伙伴。根据用户要求、目标文档片段和【工作事实】，"
+        "起草将写入文档的工作条目列表。\n"
         "只输出草稿正文，不解释、不输出标题“草稿”、不调用工具、不声称已经写入。\n"
-        "只能使用材料中已有事实，不许编造人名、进度、日期或结果。\n"
-        "用户说几句/几条就严格控制数量；没有指定时控制在 3-5 条。\n"
-        "若有上一版草稿，按本轮要求修改它，不要重复两版。\n\n"
+        "【工作事实】里「本周完成/推进中/对话证据」优先；只能写材料里能核验的事，"
+        "不许编造人名、进度、日期或结果。\n"
+        "每条一行，写成完整工作短句（可带月日如 8/17），禁止残缺日期（如单独 /17）、"
+        "禁止把【工作内容】【工作安排】这类标题当成条目。\n"
+        "用户说几句/几条就严格控制数量；没有指定时写 6-10 条。\n"
+        "若有上一版草稿：保留仍正确的条目并扩写补充，不要原样复读空标题版。\n\n"
         f"【用户要求】\n{(instruction or '').strip()[:1000]}\n\n"
-        f"【目标文档片段】\n{(document or '').strip()[:5000]}\n\n"
-        f"【工作事实】\n{(facts or '').strip()[:5000]}\n\n"
+        f"【目标文档片段】\n{(document or '').strip()[:3500]}\n\n"
+        f"【工作事实】\n{(facts or '').strip()[:7000]}\n\n"
         f"【上一版草稿】\n{(previous_draft or '').strip()[:2500]}"
     )
     text = _invoke_hermes(prompt, timeout=timeout)

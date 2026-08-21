@@ -42,6 +42,8 @@ def _next_week_bounds(now: datetime | None=None) -> tuple[datetime, datetime]:
     return (start + timedelta(days=7), end + timedelta(days=7))
 
 def weekly_text(focus: str='') -> str:
+    from .messaging import _with_inbox
+
     start, end = _week_bounds()
     agenda = _agenda_range(start, end)
     tasks = run_lark(['task', '+get-my-tasks', '--complete=false', '--page-limit', '20'], as_identity='user')

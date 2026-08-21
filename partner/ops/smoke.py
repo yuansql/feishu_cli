@@ -70,7 +70,14 @@ def smoke_cases() -> list[SmokeCase]:
             "chat-history",
             "读取和吴梦晨的飞书 CLI的聊天记录",
             expect_action="chat_history",
-            expect_contains=("最近消息",),
+            expect_not_contains=("【补充·", "FETCH:", "feishu_"),
+            ban_global_bad=False,
+        ),
+        SmokeCase(
+            "chat-history-msg",
+            "读一下消息 吴梦晨的飞书 CLI",
+            expect_action="chat_history",
+            expect_not_contains=("FETCH:", "不要输出思考"),
             ban_global_bad=False,
         ),
         SmokeCase(
@@ -90,6 +97,13 @@ def smoke_cases() -> list[SmokeCase]:
             expect_action="weekly_tasks",
             expect_contains=("本周任务",),
             expect_not_contains=("正文空", "个人内容消费", "给改写用"),
+        ),
+        SmokeCase(
+            "doc-edit-append",
+            "https://it82yw7fgr.feishu.cn/docx/JQmIdVhCmoQLbRxHMnbcO7sMnkc\n\n本周的一些活需要添加到第二个月中",
+            expect_action="write_doc",
+            run_dispatch=False,  # prepare drafts live; routing gate here
+            needs_write=True,
         ),
         SmokeCase(
             "who-is",

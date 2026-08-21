@@ -14,10 +14,12 @@
     {"id": "identity", "text": "你知道我是谁吗", "expect_action": "identity"},
     {"id": "fill-weekly-url", "text": "https://it82yw7fgr.feishu.cn/wiki/QLg1wnATIiVTuXkUiHecNag7nSh 填写周报", "expect_action": "write_weekly"},
     {"id": "chat-history", "text": "读取和吴梦晨的飞书 CLI的聊天记录", "expect_action": "chat_history"},
+    {"id": "chat-history-msg", "text": "读一下消息 吴梦晨的飞书 CLI", "expect_action": "chat_history"},
     {"id": "chats-not-history", "text": "读取我的聊天,还是不行", "expect_action": "chats"},
     {"id": "write-weekly", "text": "写个周报", "expect_action": "write_weekly"},
     {"id": "weekly-tasks-with-suffix", "text": "本周任务, 输出到消息中", "expect_action": "weekly_tasks"},
     {"id": "weekly-tasks-exact", "text": "本周任务", "expect_action": "weekly_tasks"},
+    {"id": "doc-edit-append", "text": "https://it82yw7fgr.feishu.cn/docx/JQmIdVhCmoQLbRxHMnbcO7sMnkc\n\n本周的一些活需要添加到第二个月中", "expect_action": "write_doc"},
     {"id": "who-is", "text": "邱俊立是谁", "expect_action": "who"},
     {"id": "who-self", "text": "吴梦晨是谁?", "expect_action": "identity"}
   ]

@@ -18,6 +18,7 @@ _ACK = {
     "inbox": "在看谁找你…",
     "person": "在看她怎么回的…",
     "who": "在查这人是谁…",
+    "chat_history": "在翻聊天记录…",
     "minutes": "在查纪要…",
     "approval": "在查审批…",
     "resolve": "在销账…",

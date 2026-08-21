@@ -435,12 +435,55 @@ def task_done_hint(raw: str) -> str:
     return re.sub(r"\s+", " ", q).strip(" ：:，,")
 
 
+_CHAT_HISTORY_KEYS = (
+    "聊天记录",
+    "消息记录",
+    "会话记录",
+    "聊天内容",
+    "读一下消息",
+    "读取消息",
+    "读消息",
+    "看看消息",
+    "看下消息",
+    "拉一下消息",
+    "拉消息",
+    "翻一下消息",
+    "翻消息",
+)
+_CHAT_LIST_ONLY = (
+    "读取我的聊天",
+    "读我的聊天",
+    "看我的聊天",
+    "我的聊天",
+)
+_PARTNER_CHAT_HINTS = (
+    "飞书 cli",
+    "飞书cli",
+    "feishu cli",
+    "feishu_cli",
+)
+
+
 def looks_like_chat_history(raw: str) -> bool:
     """Want message history in a known chat — not the session/group list."""
     text = (raw or "").strip()
     if not text:
         return False
-    return any(k in text for k in ("聊天记录", "消息记录", "会话记录", "聊天内容"))
+    folded = text.lower()
+    partner = any(h in folded for h in _PARTNER_CHAT_HINTS)
+    # 「读取我的聊天」= 会话列表；无消息/记录/伙伴线索时不要抢成 history。
+    if (
+        any(p in text for p in _CHAT_LIST_ONLY)
+        and not partner
+        and not any(k in text for k in ("消息", "记录", "内容"))
+    ):
+        return False
+    if any(k in text for k in _CHAT_HISTORY_KEYS):
+        return True
+    # 「读/看 … 飞书 CLI」→ 伙伴单聊消息。
+    if partner and any(k in text for k in ("读", "看", "拉", "翻", "消息", "记录", "聊天")):
+        return True
+    return False
 
 
 def looks_like_chat_find(raw: str) -> bool:
@@ -653,12 +696,35 @@ def looks_like_weekly_tasks(raw: str) -> bool:
     return False
 
 
+_DOC_EDIT_CUES = (
+    "添加",
+    "加到",
+    "写到",
+    "填到",
+    "补充到",
+    "更新到",
+    "写进",
+    "填进",
+    "改到",
+)
+
+
+def looks_like_doc_edit(raw: str) -> bool:
+    """Feishu doc URL + write/append instruction → edit existing doc, not bare read."""
+    text = raw or ""
+    if not _URL_RE.search(text):
+        return False
+    return any(cue in text for cue in _DOC_EDIT_CUES)
+
+
 def looks_like_write_doc(raw: str) -> bool:
     text = raw or ""
     if text in _WRITE_WEEKLY:
         return False
     if looks_like_weekly_tasks(text):
         return False
+    if looks_like_doc_edit(text):
+        return True
     return any(hint in text for hint in _WRITE_DOC_HINTS)
 
 
@@ -749,6 +815,9 @@ def parse_intent(text: str) -> Intent:
         and any(v in raw for v in ("填", "写", "生成", "起草"))
     ):
         return Intent(action="write_weekly", query=write_weekly_query(raw))
+    # 链接 +「添加到第二个月」→ 改现有文档，不要当成纯读。
+    if looks_like_doc_edit(raw):
+        return Intent(action="write_doc", query=raw.strip())
     if url_m and raw.startswith("http"):
         return Intent(action="read", query=url_m.group(0).rstrip(")。,，"))
 

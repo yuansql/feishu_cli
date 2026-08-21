@@ -78,6 +78,9 @@ def looks_like_bad_reply(text: str) -> bool:
             "不用再调用工具，也不许编造",
             "jsonschema",
             "'local' is not of type",
+            "让我组织一下",
+            "可能的回复",
+            "用第一人称写回复",
         )
     ):
         return True

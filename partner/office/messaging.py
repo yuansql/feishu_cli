@@ -230,6 +230,42 @@ def who_profile_text(name: str) -> str:
     return "\n\n".join(chunks)
 
 
+def who_blurb_fallback(name: str, materials: str) -> str:
+    """Deterministic 2–3 sentence intro when Hermes leaks or is offline."""
+    person = (name or "").strip() or "对方"
+    blob = materials or ""
+    dept = ""
+    for line in blob.splitlines():
+        if "·" in line and person in line:
+            dept = line.split("·", 1)[-1].strip(" -")
+            break
+    titles: list[str] = []
+    for line in blob.splitlines():
+        if not line.startswith("- ") or "http" not in line:
+            continue
+        title = line[2:].split("  http", 1)[0].strip()
+        if title:
+            titles.append(title)
+    preferred = ""
+    for title in titles:
+        if any(key in title for key in ("周报", "纪要", "AI", "蓝军", "负责人")):
+            preferred = title
+            break
+    if not preferred and titles:
+        preferred = titles[0]
+    parts: list[str] = []
+    if dept:
+        parts.append(f"{person}是{dept}的同事")
+    else:
+        parts.append(f"飞书通讯录/文档里能搜到「{person}」")
+    if preferred:
+        parts.append(f"相关材料里能看到《{preferred}》一类记录")
+    parts.append(
+        f"更细的职责我不瞎编；要看最近怎么回可以说「{person}怎么说」。"
+    )
+    return "。".join(parts)
+
+
 def person_text(query: str) -> str:
     """Look up someone's recent IM replies. Never searches docs."""
     name = (query or "").strip()

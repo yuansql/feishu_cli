@@ -75,9 +75,13 @@ class ParseIntentTests(unittest.TestCase):
             "读我和飞书CLI的聊天记录",
             "聊天记录",
             "读取聊天记录",
+            "读一下消息 吴梦晨的飞书 CLI",
+            "读消息",
+            "看看飞书 CLI 的消息",
         ):
             self.assertEqual(parse_intent(text).action, "chat_history", text)
         self.assertEqual(parse_intent("哪个群是产品评审").action, "chats")
+        self.assertEqual(parse_intent("读取我的聊天,还是不行").action, "chats")
 
     def test_which_group_is_chats_not_docs(self) -> None:
         first = parse_intent("软件发版 测试 孙萌测试是那个群")
@@ -135,6 +139,18 @@ class ParseIntentTests(unittest.TestCase):
         self.assertEqual(parse_intent("邱俊立是谁").query, "邱俊立")
         self.assertEqual(parse_intent("吴梦晨是谁?").action, "identity")
         self.assertEqual(parse_intent("张三的回复如何").action, "person")
+
+    def test_doc_url_plus_append_is_write_doc(self) -> None:
+        text = (
+            "https://it82yw7fgr.feishu.cn/docx/JQmIdVhCmoQLbRxHMnbcO7sMnkc\n\n"
+            "本周的一些活需要添加到第二个月中"
+        )
+        intent = parse_intent(text)
+        self.assertEqual(intent.action, "write_doc", text)
+        self.assertIn("第二个月", intent.query)
+        # bare URL still read
+        bare = "https://it82yw7fgr.feishu.cn/docx/JQmIdVhCmoQLbRxHMnbcO7sMnkc"
+        self.assertEqual(parse_intent(bare).action, "read")
 
     def test_write_doc_from_template_phrase(self) -> None:
         intent = parse_intent("M8 plus 体验报告 给我写个这个?")

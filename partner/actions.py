@@ -41,6 +41,7 @@ from .office.messaging import (
     chats_text,
     chat_history_text,
     who_profile_text,
+    who_blurb_fallback,
     _message_body,
     _message_who,
     _recent_messages,
@@ -89,6 +90,7 @@ from .compose.llm import (
     should_partner,
     hermes_available,
     hermes_partner_turn,
+    salvage_spoken_reply,
     _is_usable_reply,
 )
 from .routing.resolved import ensure_pending_snapshot, resolve_text
@@ -182,9 +184,15 @@ def _facts_for(intent: Intent) -> str:
 
 
 def partner_reply(user_text: str, facts: str, intent: Intent | None = None) -> str:
-    # ponytail: Hermes never gets a shell; extra facts come from our allowlist only.
+    # D1: Hermes-first synthesize; never prefer raw material dumps to Feishu.
     gathered = facts
     asked = user_text or (intent.query if intent else "") or (intent.action if intent else "")
+    if hermes_available() and (gathered or "").strip():
+        spoken = hermes_partner_turn(asked, seed_facts=gathered)
+        if spoken:
+            spoken = salvage_spoken_reply(spoken) or spoken
+        if spoken and _is_usable_reply(spoken, limit=2500):
+            return spoken
     for _ in range(4):
         spoken = rewrite_partner(asked, gathered)
         fetch = parse_fetch(spoken)
@@ -195,11 +203,33 @@ def partner_reply(user_text: str, facts: str, intent: Intent | None = None) -> s
             continue
         if spoken and _is_usable_reply(spoken, limit=2500):
             return spoken
-        return gathered
+        break
     spoken = rewrite_human(asked, gathered)
     if spoken and _is_usable_reply(spoken, limit=2500):
         return spoken
-    return gathered
+    return _materials_fallback(asked, gathered)
+
+
+def _materials_fallback(asked: str, facts: str) -> str:
+    """When Hermes fails, clip materials instead of dumping the full log."""
+    lines = [ln for ln in (facts or "").splitlines() if ln.strip()]
+    if not lines:
+        return "材料空了，再说具体一点：今天 / 待办 / 搜 关键词。"
+    title = lines[0]
+    bullets = [ln for ln in lines[1:] if ln.lstrip().startswith("- ")]
+    if "最近消息" in title or "最近怎么说" in title or bullets:
+        shown = bullets[:3] or lines[1:4]
+        more = max(0, len(bullets) - 3) if bullets else max(0, len(lines) - 4)
+        body = f"刚翻过相关记录，最近几条大概是：\n" + "\n".join(shown)
+        if more > 0:
+            body += f"\n…还有 {more} 条。要全文可以说「原样列出」。"
+        return body
+    head = lines[:5]
+    more = len(lines) - len(head)
+    body = "\n".join(head)
+    if more > 0:
+        body += f"\n…另有 {more} 行未展开。要全文可以说「原样列出」。"
+    return body
 
 
 def _continue_turn(prev: dict[str, Any], raw: str) -> str:
@@ -288,10 +318,12 @@ def dispatch(
     if artifact_action == "confirm":
         return apply_document_edit(chat_id)
     if artifact_action == "revise":
+        from .runtime.artifact import work_facts_from_week_chats
+
         return prepare_document_edit(
             chat_id,
             asked,
-            work_facts=weekly_text(),
+            work_facts=work_facts_from_week_chats(),
         )
     if intent.action == "resolve":
         ensure_pending_snapshot()
@@ -305,27 +337,61 @@ def dispatch(
         materials = who_profile_text(intent.query)
         if channel == "p2p" and not force_facts and hermes_available():
             spoken = hermes_partner_turn(asked, seed_facts=materials)
+            if not spoken:
+                spoken = rewrite_human(asked, materials)
             if spoken:
+                spoken = salvage_spoken_reply(spoken) or spoken
+            if spoken and _is_usable_reply(spoken, limit=1200):
                 if chat_id:
                     save_turn(chat_id, kind="action", query=asked, action="who")
                 return spoken
-        # No Hermes: return search materials without the LLM instruction footer.
-        trimmed = materials.rsplit("请根据以上材料", 1)[0].strip()
+        blurb = who_blurb_fallback(intent.query, materials)
         if chat_id:
             save_turn(chat_id, kind="action", query=asked, action="who")
-        return trimmed or materials
+        return blurb
     if (
         intent.action == "write_doc"
         and chat_id
         and channel == "p2p"
         and not force_facts
         and "feishu.cn/" in asked
-        and any(word in asked for word in ("写到", "填到", "改", "补充", "更新"))
+        and any(
+            word in asked
+            for word in (
+                "写到",
+                "填到",
+                "加到",
+                "添加",
+                "改",
+                "补充",
+                "更新",
+                "写进",
+                "填进",
+            )
+        )
     ):
+        from .runtime.artifact import work_facts_from_week_chats
+
         return prepare_document_edit(
             chat_id,
             asked,
-            work_facts=weekly_text(),
+            work_facts=work_facts_from_week_chats(),
+        )
+    # 误判成 read，但原文带写入意图 → 仍走文档编辑起草。
+    if (
+        intent.action == "read"
+        and chat_id
+        and channel == "p2p"
+        and not force_facts
+        and "feishu.cn/" in asked
+        and any(word in asked for word in ("添加", "加到", "写到", "填到", "补充到", "更新到"))
+    ):
+        from .runtime.artifact import work_facts_from_week_chats
+
+        return prepare_document_edit(
+            chat_id,
+            asked,
+            work_facts=work_facts_from_week_chats(),
         )
     if intent.action == "plan":
         goal = (intent.query or asked).strip()
@@ -467,7 +533,7 @@ def dispatch(
                 for marker in ("飞书权威失败", "文档是空的", "读不到正文", "缺权限")
             )
         ):
-            observe_document(chat_id, intent.query, facts)
+            observe_document(chat_id, intent.query, facts, instruction=asked)
         if chat_id:
             save_turn(chat_id, kind="action", query=asked, action=intent.action, pairs=[])
     if force_facts:
