@@ -43,7 +43,22 @@ _CONFIRM = frozenset(
     }
 )
 _CLOSE = frozenset({"结束", "任务结束", "取消", "不用了", "先不写了"})
-_REVISE = ("多一点", "太少", "少了", "补充", "扩写", "再写", "调整", "改成", "这块")
+_REVISE = ("多一点", "太少", "少了", "补充", "扩写", "再写", "改成", "这块")
+_VAGUE_ADJUST = frozenset(
+    {
+        "调整",
+        "调整这个",
+        "调整下",
+        "调整一下",
+        "改一下",
+        "改改",
+        "改这个",
+        "改下",
+        "修正",
+        "修正一下",
+        "改改这个",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -136,13 +151,19 @@ def artifact_turn(task: dict[str, Any] | None, raw: str) -> str:
         return ""
     status = str(task.get("status") or "")
     text = re.sub(r"\s+", "", raw or "")
-    if text in _CLOSE:
+    # Strip URL so 「链接+调整这个」仍算含糊调整，禁止误当成「多一点」扩写。
+    bare = re.sub(r"https?://\S+", "", raw or "")
+    bare = re.sub(r"\s+", "", bare)
+    if text in _CLOSE or bare in _CLOSE:
         return "close"
     # 已有草稿 → 写啊 = 确认写入；只观察过 → 写啊 = 先起草。
     if text in _CONFIRM and status in {"ready", "verify_failed"}:
         return "confirm"
     if text in _CONFIRM and status in {"observed", "needs_target"}:
         return "revise"
+    if bare in _VAGUE_ADJUST or text in _VAGUE_ADJUST:
+        # 用户要「改文档」，不是「再按本周事实往旧章节塞一遍」。
+        return "clarify_adjust"
     if any(key in (raw or "") for key in _REVISE):
         if status in {"ready", "done", "verify_failed", "observed", "needs_target"}:
             return "revise"
@@ -181,12 +202,13 @@ def _flatten(elements: list[ElementTree.Element]) -> list[ElementTree.Element]:
     return out
 
 
-def locate_target_block(
+def locate_append_anchor(
     xml: str,
     *,
     marker: str = "",
     section: str = "",
 ) -> TargetBlock:
+    """Pick insert-after block: prefer last item inside a subsection heading."""
     try:
         root = ElementTree.fromstring(xml)
     except ElementTree.ParseError as exc:
@@ -203,43 +225,73 @@ def locate_target_block(
                 start = index
                 level = current
                 break
-        if start >= 0:
-            end = len(top)
-            for index in range(start + 1, len(top)):
-                current = _heading_level(top[index])
-                if current is not None and current <= level:
-                    end = index
-                    break
-            scope = top[start:end]
+        if start < 0:
+            raise ValueError(f"没在文档里定位到「{section_text}」")
+        end = len(top)
+        for index in range(start + 1, len(top)):
+            current = _heading_level(top[index])
+            if current is not None and current <= level:
+                end = index
+                break
+        scope = top[start:end]
+
+    flat_scope = list(scope)
     blocks = _flatten(scope)
     needle = (marker or "").strip()
-    if needle:
-        hits = [
-            element
-            for element in blocks
-            if needle in _element_label(element) and element.attrib.get("id")
-        ]
-        if len(hits) == 1:
-            return TargetBlock(str(hits[0].attrib["id"]), _element_label(hits[0]))
-        if len(hits) > 1:
-            exact = [
-                element
-                for element in hits
-                if needle in {
-                    str(node.attrib.get("user-name") or "")
-                    for node in element.iter()
-                }
-            ]
-            if len(exact) == 1:
-                return TargetBlock(str(exact[0].attrib["id"]), _element_label(exact[0]))
-            raise ValueError(f"「{needle}」在目标范围内出现多次")
-        raise ValueError(f"没在文档里定位到「{needle}」")
-    if section_text:
+
+    if not needle:
+        last = None
         for element in blocks:
-            if section_text in _element_label(element) and element.attrib.get("id"):
-                return TargetBlock(str(element.attrib["id"]), _element_label(element))
-        raise ValueError(f"没在文档里定位到「{section_text}」")
-    raise ValueError("还不知道要写到文档哪一节")
+            if element.attrib.get("id"):
+                last = element
+        if last is None:
+            raise ValueError("目标章节里没有可插入的位置")
+        return TargetBlock(
+            str(last.attrib["id"]),
+            _element_label(last) or section_text,
+        )
+
+    # Subsection headings (工作安排 / 工作完成情况): append after last content.
+    for index, element in enumerate(flat_scope):
+        current = _heading_level(element)
+        if current is None or needle not in _element_label(element):
+            continue
+        if not element.attrib.get("id"):
+            continue
+        last: ElementTree.Element = element
+        for nxt in flat_scope[index + 1 :]:
+            nxt_level = _heading_level(nxt)
+            if nxt_level is not None and nxt_level <= current:
+                break
+            if nxt.attrib.get("id"):
+                last = nxt
+            for child in nxt.iter():
+                if child.tag == "li" and child.attrib.get("id"):
+                    last = child
+        return TargetBlock(
+            str(last.attrib["id"]),
+            f"{_element_label(element)} · {_element_label(last)[:40]}".strip(" ·"),
+        )
+
+    # Name / plain markers: unique hit in scope (旧 locate_target_block).
+    hits = [
+        element
+        for element in blocks
+        if needle in _element_label(element) and element.attrib.get("id")
+    ]
+    if len(hits) == 1:
+        return TargetBlock(str(hits[0].attrib["id"]), _element_label(hits[0]))
+    if len(hits) > 1:
+        exact = [
+            element
+            for element in hits
+            if needle
+            in {str(node.attrib.get("user-name") or "") for node in element.iter()}
+        ]
+        if len(exact) == 1:
+            return TargetBlock(str(exact[0].attrib["id"]), _element_label(exact[0]))
+        raise ValueError(f"「{needle}」在目标范围内出现多次")
+    raise ValueError(f"没在文档里定位到「{needle}」")
 
 
 def _section_hint(instruction: str) -> str:
@@ -255,19 +307,38 @@ def _marker_hint(instruction: str, section: str) -> str:
         r"(?:写到|填到|加到|放到|添加到|补充到|更新到)(.{1,32}?)(?:下面|下边|后面|部分|那里|中)",
         text,
     )
-    if not match:
-        return next(
-            (
-                item
-                for item in _SUBSECTIONS
-                if item != section and item in text
-            ),
-            "",
-        )
-    marker = match.group(1).strip(" ：:，,")
-    if section:
-        marker = marker.replace(section, "").strip(" ：:，,")
-    return marker
+    if match:
+        marker = match.group(1).strip(" ：:，,")
+        if section:
+            marker = marker.replace(section, "").strip(" ：:，,")
+        # 「添加到第二个月中」→ marker 空，落到默认章节，不要把「第二个月」当小标题。
+        if marker and marker not in {"第二个月", "第一个月", "第三个月"} and not _MONTH_RE.fullmatch(
+            marker
+        ):
+            if any(item in marker for item in _SUBSECTIONS):
+                for item in _SUBSECTIONS:
+                    if item in marker:
+                        return item
+            if marker:
+                return marker
+    hit = next(
+        (
+            item
+            for item in _SUBSECTIONS
+            if item != section and item in text
+        ),
+        "",
+    )
+    if hit:
+        return hit
+    # 试用期月文档：本周活/添加 → 默认写入「二、工作完成情况」，禁止插到月标题下。
+    if section and ("月" in section) and any(
+        key in text for key in ("本周", "添加", "加到", "活", "完成", "任务", "工作")
+    ):
+        if "安排" in text and "完成" not in text:
+            return "工作安排"
+        return "工作完成情况"
+    return ""
 
 
 def _payload_content(payload: dict[str, Any]) -> str:
@@ -433,7 +504,13 @@ def _fallback_draft(
     if "【本周完成" in factual_pool:
         # Only take curated buckets, not the long 对话证据摘录 tail.
         prefer = factual_pool.split("【对话证据摘录】", 1)[0]
-    pool = prefer or f"{work_facts}\n{previous}\n{source}".strip()
+    if prefer.strip():
+        pool = prefer
+    elif (work_facts or "").strip():
+        # Have week facts → never pad with unrelated document headings.
+        pool = f"{work_facts}\n{previous}".strip()
+    else:
+        pool = f"{previous}\n{source}".strip()
     for raw in pool.splitlines():
         line = re.sub(r"^[\s>*#\-]+", "", raw).strip()
         line = re.sub(r"^\d+[\.、)\]]\s*", "", line).strip()
@@ -544,7 +621,9 @@ def prepare_document_edit(
                 str(active.get("anchor_label") or "上次位置"),
             )
         else:
-            target = locate_target_block(source_xml, marker=marker, section=section)
+            target = locate_append_anchor(
+                source_xml, marker=marker, section=section
+            )
     except ValueError as exc:
         task = dict(active)
         task.update(
@@ -567,6 +646,13 @@ def prepare_document_edit(
         and target.block_id == active.get("anchor_block_id")
     )
     previous = str(active.get("draft") or "") if same_target else ""
+    # Prefer structured list draft matching 工作完成情况.
+    if marker == "工作完成情况" or "完成情况" in marker:
+        draft_instruction = (
+            draft_instruction
+            + "\n输出须像文档里「二、工作完成情况」条目：每行一条任务短句，"
+            "已完成的加 (已完成)；不要输出 1.2.3. 编号标题，不要插到月标题下。"
+        )
     draft = draft_doc_edit(
         draft_instruction,
         plain,
@@ -602,8 +688,12 @@ def prepare_document_edit(
         "last_error": "",
     }
     save_artifact(chat_id, task)
+    where = f"「{target.label[:80]}」"
+    if marker:
+        where = f"「{marker}」（{section or '文档'}内）"
     return (
-        f"已读到目标文档，准备修改「{target.label[:80]}」下方。\n\n"
+        f"已读到目标文档，准备把本周条目追加到{where}末尾"
+        f"（按现有列表格式，不是插到月标题下面）。\n\n"
         f"【草稿】\n{task['draft']}\n\n"
         "回复「写进去」执行；说「多一点」继续扩写；说「结束」取消。"
     )
@@ -612,6 +702,39 @@ def prepare_document_edit(
 def _xml_paragraph(text: str) -> str:
     escaped = html.escape(text or "", quote=False).replace("\n", "<br/>")
     return f"<p>{escaped}</p>"
+
+
+def _draft_lines(draft: str) -> list[str]:
+    lines: list[str] = []
+    for raw in (draft or "").splitlines():
+        line = re.sub(r"^\s*\d+[\.、)]\s*", "", raw).strip()
+        line = re.sub(r"^[\-\*•]\s*", "", line).strip()
+        if len(line) < 4:
+            continue
+        if line.startswith("【") and line.endswith("】"):
+            continue
+        lines.append(line)
+    return lines
+
+
+def _style_completion_item(line: str) -> str:
+    """Match 工作完成情况 style: bare task + (已完成) when appropriate."""
+    body = line.strip()
+    if re.search(r"\(已完成\)|（已完成）|已完成|已经完成", body):
+        return body
+    if any(
+        key in body
+        for key in ("仍在", "研究", "推进中", "尚未", "未启动", "跟进", "待确认", "是否已经")
+    ):
+        return body
+    return f"{body} (已完成)"
+
+
+def _xml_list_items(draft: str) -> str:
+    items = [_style_completion_item(line) for line in _draft_lines(draft)]
+    if not items:
+        return _xml_paragraph(draft)
+    return "".join(f"<li>{html.escape(item, quote=False)}</li>" for item in items)
 
 
 def _first_preview(text: str) -> str:
@@ -642,6 +765,64 @@ def _update_succeeded(payload: dict[str, Any]) -> bool:
     return result == "success"
 
 
+def cleanup_misplaced_month_dump(doc_url: str, section: str = "第二个月") -> str:
+    """Remove orphan numbered dump inserted under month H1 (before 一、工作安排)."""
+    payload = _fetch_target(doc_url, section, "")
+    if payload.get("ok") is False:
+        return ""
+    xml = _payload_content(payload)
+    try:
+        root = ElementTree.fromstring(xml)
+    except ElementTree.ParseError:
+        return ""
+    top = list(root)
+    section_text = (section or "").strip()
+    start = -1
+    level = 10
+    for index, element in enumerate(top):
+        current = _heading_level(element)
+        if current is not None and section_text in _element_label(element):
+            start = index
+            level = current
+            break
+    if start < 0 or start + 1 >= len(top):
+        return ""
+    nxt = top[start + 1]
+    # Orphan dump is a <p> with many numbered lines, sitting before 一、工作安排.
+    if _heading_level(nxt) is not None:
+        return ""
+    label = _element_label(nxt)
+    if nxt.tag != "p" or not nxt.attrib.get("id"):
+        return ""
+    if not any(token in label for token in ("M8p", "scene", "预发", "1.", "2.")):
+        return ""
+    # Next meaningful heading should be 工作安排 — confirm we're before structure.
+    for element in top[start + 2 : start + 6]:
+        if _heading_level(element) is not None and "工作安排" in _element_label(element):
+            break
+    else:
+        return ""
+    deleted = run_lark(
+        [
+            "docs",
+            "+update",
+            "--doc",
+            doc_url,
+            "--command",
+            "block_delete",
+            "--block-id",
+            str(nxt.attrib["id"]),
+            "--revision-id",
+            "-1",
+        ],
+        as_identity="user",
+        timeout=90,
+    )
+    if not _update_succeeded(deleted):
+        return ""
+    return str(nxt.attrib["id"])
+
+
 def apply_document_edit(chat_id: str) -> str:
     task = load_artifact(chat_id)
     if not task:
@@ -652,6 +833,9 @@ def apply_document_edit(chat_id: str) -> str:
         return "当前草稿还没准备好，先说要改哪一节。"
     doc_url = str(task.get("doc_url") or "")
     draft = str(task.get("draft") or "").strip()
+    # Fix prior wrong insert under month H1 before writing into 工作完成情况.
+    if "月" in str(task.get("section") or ""):
+        cleanup_misplaced_month_dump(doc_url, str(task.get("section") or "第二个月"))
     payload = _fetch_target(
         doc_url,
         str(task.get("section") or ""),
@@ -666,9 +850,10 @@ def apply_document_edit(chat_id: str) -> str:
     if inserted:
         command = "block_replace"
         block_id = inserted
+        content = _xml_paragraph(draft)
     else:
         try:
-            target = locate_target_block(
+            target = locate_append_anchor(
                 source_xml,
                 marker=str(task.get("marker") or ""),
                 section=str(task.get("section") or ""),
@@ -681,6 +866,12 @@ def apply_document_edit(chat_id: str) -> str:
         block_id = target.block_id
         task["anchor_block_id"] = target.block_id
         task["anchor_label"] = target.label
+        content = (
+            _xml_list_items(draft)
+            if str(task.get("marker") or "") in {"工作完成情况", "工作安排"}
+            or "完成情况" in str(task.get("marker") or "")
+            else _xml_paragraph(draft)
+        )
     update = run_lark(
         [
             "docs",
@@ -694,7 +885,7 @@ def apply_document_edit(chat_id: str) -> str:
             "--doc-format",
             "xml",
             "--content",
-            _xml_paragraph(draft),
+            content,
             "--revision-id",
             str(_payload_revision(payload)),
         ],
@@ -709,6 +900,9 @@ def apply_document_edit(chat_id: str) -> str:
     new_id = _new_block_id(update) or inserted
     task["inserted_block_id"] = new_id
     preview = _first_preview(draft)
+    if str(task.get("marker") or "") in {"工作完成情况", "工作安排"}:
+        lines = _draft_lines(draft)
+        preview = (lines[0] if lines else preview)[:28]
     verify = run_lark(
         [
             "docs",

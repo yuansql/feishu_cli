@@ -85,16 +85,6 @@ def looks_like_bad_reply(text: str) -> bool:
     ):
         return True
     return False
-    blob = (text or "").strip()
-    if not blob:
-        return True
-    if _looks_like_transport_error(blob):
-        return True
-    if _looks_like_provider_error(blob):
-        return True
-    if _looks_like_leak(blob):
-        return True
-    return False
 
 
 def looks_like_transient_fail(result: str) -> bool:

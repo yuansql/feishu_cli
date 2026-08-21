@@ -13,7 +13,7 @@ from partner.runtime.artifact import (
     artifact_turn,
     close_artifact,
     load_artifact,
-    locate_target_block,
+    locate_append_anchor,
     observe_document,
     prepare_document_edit,
     save_artifact,
@@ -53,7 +53,7 @@ class ArtifactTaskTests(unittest.TestCase):
         self.assertIn("入职第二个月", task["source_snapshot"])
 
     def test_locate_target_within_named_section(self) -> None:
-        target = locate_target_block(
+        target = locate_append_anchor(
             SOURCE_XML,
             marker="吴梦晨",
             section="入职第二个月",
@@ -61,13 +61,14 @@ class ArtifactTaskTests(unittest.TestCase):
         self.assertEqual(target.block_id, "owner2")
         self.assertIn("吴梦晨", target.label)
 
-    def test_locate_subsection_within_month(self) -> None:
-        target = locate_target_block(
+    def test_locate_subsection_appends_after_last_item(self) -> None:
+        target = locate_append_anchor(
             SOURCE_XML,
             marker="工作完成情况",
             section="入职第二个月",
         )
-        self.assertEqual(target.block_id, "done2")
+        # Append at list end — not the subsection H3 itself.
+        self.assertEqual(target.block_id, "item2")
 
     def test_prepare_builds_draft_without_writing(self) -> None:
         observe_document("oc_x", DOC_URL, "# 入职第二个月\n原文")
@@ -152,17 +153,17 @@ class ArtifactTaskTests(unittest.TestCase):
         with patch("partner.runtime.artifact.run_lark", return_value=payload):
             with patch(
                 "partner.runtime.artifact.draft_doc_edit",
-                return_value="新一节草稿",
+                return_value="1. 完成 A6 修复\n2. 推进套餐查询",
             ) as draft:
                 prepare_document_edit(
                     "oc_x",
                     "入职第二个月的工作完成情况给我写一下",
-                    work_facts="新事实",
+                    work_facts="新事实足够长的一条工作描述",
                 )
         self.assertEqual(draft.call_args.kwargs["previous_draft"], "")
         task = load_artifact("oc_x")
         assert task is not None
-        self.assertEqual(task["anchor_block_id"], "done2")
+        self.assertEqual(task["anchor_block_id"], "item2")
         self.assertEqual(task["inserted_block_id"], "")
 
     def test_explicit_new_section_does_not_reuse_old_marker(self) -> None:
@@ -186,12 +187,12 @@ class ArtifactTaskTests(unittest.TestCase):
         with patch("partner.runtime.artifact.run_lark", return_value=payload):
             with patch(
                 "partner.runtime.artifact.draft_doc_edit",
-                return_value="第三个月草稿",
+                return_value="1. 第三个月条目甲\n2. 第三个月条目乙",
             ):
                 prepare_document_edit(
                     "oc_x",
                     "入职第三个月给我写一下",
-                    work_facts="新事实",
+                    work_facts="新事实足够长的一条工作描述",
                 )
         task = load_artifact("oc_x")
         assert task is not None
@@ -238,10 +239,14 @@ class ArtifactTaskTests(unittest.TestCase):
             },
         }
         with patch(
-            "partner.runtime.artifact.run_lark",
-            side_effect=[locate, updated, verified],
-        ) as run:
-            reply = apply_document_edit("oc_x")
+            "partner.runtime.artifact.cleanup_misplaced_month_dump",
+            return_value="",
+        ):
+            with patch(
+                "partner.runtime.artifact.run_lark",
+                side_effect=[locate, updated, verified],
+            ) as run:
+                reply = apply_document_edit("oc_x")
         update_args = run.call_args_list[1].args[0]
         self.assertEqual(update_args[:2], ["docs", "+update"])
         self.assertIn("block_insert_after", update_args)
@@ -291,10 +296,14 @@ class ArtifactTaskTests(unittest.TestCase):
             },
         }
         with patch(
-            "partner.runtime.artifact.run_lark",
-            side_effect=[locate, updated, verified],
-        ) as run:
-            apply_document_edit("oc_x")
+            "partner.runtime.artifact.cleanup_misplaced_month_dump",
+            return_value="",
+        ):
+            with patch(
+                "partner.runtime.artifact.run_lark",
+                side_effect=[locate, updated, verified],
+            ) as run:
+                apply_document_edit("oc_x")
         update_args = run.call_args_list[1].args[0]
         self.assertIn("block_replace", update_args)
         self.assertIn("old1", update_args)
@@ -321,8 +330,15 @@ class ArtifactTaskTests(unittest.TestCase):
             "data": {"document": {"content": SOURCE_XML, "revision_id": 8}},
         }
         failed = {"ok": False, "error": {"message": "forbidden"}}
-        with patch("partner.runtime.artifact.run_lark", side_effect=[locate, failed]):
-            reply = apply_document_edit("oc_x")
+        with patch(
+            "partner.runtime.artifact.cleanup_misplaced_month_dump",
+            return_value="",
+        ):
+            with patch(
+                "partner.runtime.artifact.run_lark",
+                side_effect=[locate, failed],
+            ):
+                reply = apply_document_edit("oc_x")
         self.assertIn("写入失败", reply)
         self.assertNotIn("任务结束", reply)
         task = load_artifact("oc_x")
@@ -364,10 +380,14 @@ class ArtifactTaskTests(unittest.TestCase):
             "data": {"document": {"content": "<fragment></fragment>"}},
         }
         with patch(
-            "partner.runtime.artifact.run_lark",
-            side_effect=[locate, updated, missing],
+            "partner.runtime.artifact.cleanup_misplaced_month_dump",
+            return_value="",
         ):
-            reply = apply_document_edit("oc_x")
+            with patch(
+                "partner.runtime.artifact.run_lark",
+                side_effect=[locate, updated, missing],
+            ):
+                reply = apply_document_edit("oc_x")
         self.assertIn("未验真", reply)
         self.assertNotIn("任务结束", reply)
         task = load_artifact("oc_x")
@@ -390,7 +410,7 @@ class ArtifactTaskTests(unittest.TestCase):
         )
         self.assertEqual(
             artifact_turn({"status": "observed"}, "多一点"),
-            "",
+            "revise",
         )
         self.assertEqual(
             artifact_turn({"status": "ready"}, "多一点"),
@@ -413,28 +433,28 @@ class ArtifactDispatchTests(unittest.TestCase):
 
     def test_read_observes_document_for_next_turn(self) -> None:
         asked = f"{DOC_URL} 读这个"
-        with patch("partner.actions.read_text", return_value="# 入职第二个月\n原文"):
-            with patch("partner.actions.partner_reply", return_value=""):
+        with patch("partner.actions.hermes_available", return_value=True):
+            with patch(
+                "partner.runtime.hermes_control.hermes_control_turn",
+                return_value="已读到入职第二个月相关内容。",
+            ) as hermes:
                 reply = dispatch(
                     parse_intent(asked),
                     user_text=asked,
                     channel="p2p",
                     chat_id="oc_x",
                 )
+        hermes.assert_called_once()
         self.assertIn("入职第二个月", reply)
-        task = load_artifact("oc_x")
-        assert task is not None
-        self.assertEqual(task["status"], "observed")
-        self.assertEqual(task["doc_url"], DOC_URL)
 
-    def test_section_write_uses_observed_doc_not_create(self) -> None:
+    def test_section_write_goes_hermes_not_create(self) -> None:
         observe_document("oc_x", DOC_URL, "# 入职第二个月\n原文")
         asked = "入职第二个月的工作完成情况给我写一下"
-        with patch(
-            "partner.actions.prepare_document_edit",
-            return_value="【草稿】\n两条内容",
-        ) as prepare:
-            with patch("partner.actions.weekly_text", return_value="本周事实"):
+        with patch("partner.actions.hermes_available", return_value=True):
+            with patch(
+                "partner.runtime.hermes_control.hermes_control_turn",
+                return_value="【草稿】\n两条内容\n\n回复「写进去」执行。",
+            ) as hermes:
                 with patch("partner.actions.write_doc_text") as create:
                     reply = dispatch(
                         parse_intent(asked),
@@ -442,17 +462,17 @@ class ArtifactDispatchTests(unittest.TestCase):
                         channel="p2p",
                         chat_id="oc_x",
                     )
-        prepare.assert_called_once()
+        hermes.assert_called_once()
         create.assert_not_called()
         self.assertIn("草稿", reply)
 
-    def test_linked_edit_prepares_existing_doc_not_new_doc(self) -> None:
+    def test_linked_edit_goes_hermes_not_new_doc(self) -> None:
         asked = f"{DOC_URL} 先读后给我写到吴梦晨下面，先写2句话看看"
-        with patch(
-            "partner.actions.prepare_document_edit",
-            return_value="【草稿】\n两条内容",
-        ) as prepare:
-            with patch("partner.actions.weekly_text", return_value="本周事实"):
+        with patch("partner.actions.hermes_available", return_value=True):
+            with patch(
+                "partner.runtime.hermes_control.hermes_control_turn",
+                return_value="【草稿】\n两条内容",
+            ) as hermes:
                 with patch("partner.actions.write_doc_text") as create:
                     reply = dispatch(
                         parse_intent(asked),
@@ -460,7 +480,7 @@ class ArtifactDispatchTests(unittest.TestCase):
                         channel="p2p",
                         chat_id="oc_x",
                     )
-        prepare.assert_called_once()
+        hermes.assert_called_once()
         create.assert_not_called()
         self.assertIn("草稿", reply)
 

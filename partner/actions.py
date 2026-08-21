@@ -78,7 +78,6 @@ from .runtime.artifact import (
     close_artifact,
     load_artifact,
     observe_document,
-    prepare_document_edit,
 )
 from .routing.intents import Intent, looks_like_bare_search, parse_intent
 from .compose.llm import (
@@ -317,14 +316,14 @@ def dispatch(
         return close_artifact(chat_id)
     if artifact_action == "confirm":
         return apply_document_edit(chat_id)
-    if artifact_action == "revise":
-        from .runtime.artifact import work_facts_from_week_chats
+    # P2P：非壳硬路径一律本机 Hermes 主控（文档改法/跟进/未知句），壳只供 seed + 写闸。
+    if channel == "p2p" and chat_id and not force_facts and hermes_available():
+        from .runtime.hermes_control import SHELL_FAST, hermes_control_turn
 
-        return prepare_document_edit(
-            chat_id,
-            asked,
-            work_facts=work_facts_from_week_chats(),
-        )
+        if intent.action not in SHELL_FAST:
+            spoken = hermes_control_turn(chat_id, asked, action=intent.action)
+            if spoken:
+                return spoken
     if intent.action == "resolve":
         ensure_pending_snapshot()
         return resolve_text(intent.query or user_text)
@@ -349,50 +348,6 @@ def dispatch(
         if chat_id:
             save_turn(chat_id, kind="action", query=asked, action="who")
         return blurb
-    if (
-        intent.action == "write_doc"
-        and chat_id
-        and channel == "p2p"
-        and not force_facts
-        and "feishu.cn/" in asked
-        and any(
-            word in asked
-            for word in (
-                "写到",
-                "填到",
-                "加到",
-                "添加",
-                "改",
-                "补充",
-                "更新",
-                "写进",
-                "填进",
-            )
-        )
-    ):
-        from .runtime.artifact import work_facts_from_week_chats
-
-        return prepare_document_edit(
-            chat_id,
-            asked,
-            work_facts=work_facts_from_week_chats(),
-        )
-    # 误判成 read，但原文带写入意图 → 仍走文档编辑起草。
-    if (
-        intent.action == "read"
-        and chat_id
-        and channel == "p2p"
-        and not force_facts
-        and "feishu.cn/" in asked
-        and any(word in asked for word in ("添加", "加到", "写到", "填到", "补充到", "更新到"))
-    ):
-        from .runtime.artifact import work_facts_from_week_chats
-
-        return prepare_document_edit(
-            chat_id,
-            asked,
-            work_facts=work_facts_from_week_chats(),
-        )
     if intent.action == "plan":
         goal = (intent.query or asked).strip()
         # Hermes-first for complex plan; TaskRunner/LangGraph remains fallback.

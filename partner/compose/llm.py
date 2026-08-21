@@ -59,12 +59,12 @@ _PROVIDER_ERROR_MARKERS = (
 _COMPOSE_ACTIONS = frozenset(
     {"weekly", "tasks", "unknown", "minutes", "approval"}
 )
-# D1（2026-08-21）：P2P 默认 Hermes 归纳。仅写入闸 + 极短硬指令留在此集合（直接回事实/卡）。
+# D1（2026-08-21）：P2P 默认 Hermes。仅写入闸 + 极短硬指令走壳（直接回事实/卡）。
+# write_doc / plan / who / read… 交 Hermes 主控（见 hermes_control）。
 _NO_PARTNER = frozenset(
     {
         "send",
         "write_weekly",
-        "write_doc",
         "resolve",
         "task_done",
         "digest",
@@ -73,7 +73,6 @@ _NO_PARTNER = frozenset(
         "today_recap",
         "tomorrow",
         "brief",
-        "plan",
         "task_continue",
         "task_status",
         "task_confirm",
@@ -488,7 +487,7 @@ def _partner_prompt(user_text: str, facts: str, *, with_tools: bool) -> str:
         f"{extra}"
         "材料够了就只输出给用户看的完整正文。\n\n"
         f"用户说：{user_text.strip() or '本周情况'}\n\n"
-        f"【材料】\n{facts.strip()[:3500]}"
+        f"【材料】\n{facts.strip()[:10000]}"
     )
 
 

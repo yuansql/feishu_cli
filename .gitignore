@@ -8,6 +8,7 @@ __pycache__/
 secrets/
 partner.egg-info/
 .pytest_cache/
+.workbuddy-ai/
 session.json
 serve.log
 *.launchd.log

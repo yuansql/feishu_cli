@@ -6,15 +6,15 @@
 
 | 角色 | 谁干 | 说明 |
 |---|---|---|
-| **脑** | 本机 Hermes（`feishupartner`） | 复杂句多轮想；只读 MCP |
-| **手** | 官方 `lark-cli`（user OAuth） | 经本仓白名单 MCP 调用，即已授权飞书能力 |
-| **闸 / 壳** | 本仓 `feishu serve` + office | 收消息、短指令、ack、确认写入、幂等 |
+| **脑 / 主控** | 本机 Hermes（`feishupartner`） | **P2P 默认全控**：怎么理解、怎么回、文档改哪/改成什么 |
+| **手** | 官方 `lark-cli`（user OAuth） | 经本仓白名单 MCP 调用 |
+| **闸 / 壳** | 本仓 `feishu serve` + office | 收消息、ack、极短硬指令（今天/待办/简报…）、**「写进去」才写云文档** |
 | **后备脑** | LangGraph Agent v2 | Hermes 不可用时；写仍确认闸 |
 
 **不做**：把伙伴改成「Hermes 直连飞书、全技能可写」的第二网关（能力面大、失控面也大）。
 
 短指令（今天 / 待办 / 简报 / 帮助 / 销账 / 写入确认…）仍走 `office` 快路径。  
-**材料类**（读消息 / 搜索 / 读文档 / 收件箱 / 某人怎么说 / 哪个群…）单聊经 Hermes 归纳后再回，禁止整段原文甩料。长任务细节见 [RUNTIME_V2.md](RUNTIME_V2.md)。
+其余单聊（含读文档、调整、跟进「不符合格式」）→ `hermes_control_turn`：壳只供 sticky 文档 seed，**禁止壳模板抢答**。长任务细节见 [RUNTIME_V2.md](RUNTIME_V2.md)。
 
 | 层 | 实际技术 |
 |---|---|
