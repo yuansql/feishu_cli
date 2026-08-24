@@ -51,7 +51,9 @@ SHELL_FAST = frozenset(
 _CONTROL_RULES = (
     "【主控规则】\n"
     "你是本机 Hermes，单聊主控。壳只负责收消息与「写进去」确认写入。\n"
-    "有【进行中的文档任务】时必须接着改这份文档，禁止问「哪份文档/进度/接口」。\n"
+    "用户在问今日简报/今天/明天/待办时：用 feishu_brief / feishu_today 等工具取数，"
+    "禁止继续改云文档，禁止提试用期考核表。\n"
+    "只有用户明确在改某份云文档时，才使用【进行中的文档任务】。\n"
     "要改云文档时：先用人话说明改法，再输出【草稿】（每行一条），"
     "末尾提示用户回复「写进去」才真正写入；你自己不能写云文档。\n"
     "试用期考核表：条目应落在对应月的「二、工作完成情况」列表，"
@@ -60,8 +62,27 @@ _CONTROL_RULES = (
 )
 
 
+def _wants_doc_seed(asked: str, task: dict[str, Any]) -> bool:
+    if _URL_RE.search(asked or ""):
+        return True
+    if not str(task.get("doc_url") or ""):
+        return False
+    from ..routing.intents import looks_like_daily_brief, looks_like_doc_edit
+
+    if looks_like_daily_brief(asked):
+        return False
+    if looks_like_doc_edit(asked):
+        return True
+    return any(
+        key in (asked or "")
+        for key in ("格式", "草稿", "完成情况", "不符合", "调整", "多一点", "写进去")
+    )
+
+
 def _doc_seed(chat_id: str, asked: str) -> tuple[str, dict[str, Any]]:
     task = dict(load_artifact(chat_id) or {})
+    if not _wants_doc_seed(asked, task):
+        return "", task
     explicit = _URL_RE.search(asked or "")
     doc_url = (
         (explicit.group(0).rstrip(")。,，") if explicit else "")

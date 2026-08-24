@@ -65,10 +65,8 @@ from typing import Any
 
 from .compose.formatters import (
     help_text,
-    format_clarify,
     format_lark_error,
     looks_like_clarify,
-    material_pairs,
 )
 from .office.brief import brief_text
 from .ops.aily import alignment_text
@@ -81,7 +79,6 @@ from .runtime.artifact import (
 )
 from .routing.intents import Intent, looks_like_bare_search, parse_intent
 from .compose.llm import (
-    classify_intent,
     parse_fetch,
     rewrite_human,
     rewrite_partner,
@@ -316,14 +313,6 @@ def dispatch(
         return close_artifact(chat_id)
     if artifact_action == "confirm":
         return apply_document_edit(chat_id)
-    # P2P：非壳硬路径一律本机 Hermes 主控（文档改法/跟进/未知句），壳只供 seed + 写闸。
-    if channel == "p2p" and chat_id and not force_facts and hermes_available():
-        from .runtime.hermes_control import SHELL_FAST, hermes_control_turn
-
-        if intent.action not in SHELL_FAST:
-            spoken = hermes_control_turn(chat_id, asked, action=intent.action)
-            if spoken:
-                return spoken
     if intent.action == "resolve":
         ensure_pending_snapshot()
         return resolve_text(intent.query or user_text)
@@ -386,6 +375,16 @@ def dispatch(
 
         return knowledge_answer(route.query, chat_id=chat_id)
     prev = load_turn(chat_id) if chat_id else None
+    if prev and asked.strip() in {"重试", "再说一次", "再试一次"}:
+        prior = str(prev.get("query") or "").strip()
+        if prior and prior not in {"重试", "再说一次", "再试一次"}:
+            return dispatch(
+                parse_intent(prior),
+                user_text=prior,
+                channel=channel,
+                chat_id=chat_id,
+                force_facts=force_facts,
+            )
     if chat_id and asked.strip() == "继续" and active_task_for_chat(chat_id):
         return continue_task(chat_id)
     if (
@@ -439,21 +438,38 @@ def dispatch(
             return reply
     if intent.action == "unknown" and looks_like_followup(asked) and not prev:
         return "上一轮我没接上。直接说「今天」「待办」，或「搜 关键词」。"
+    # P2P：闸/跟进之后，非壳硬路径交本机 Hermes。
+    if channel == "p2p" and chat_id and not force_facts and hermes_available():
+        from .runtime.hermes_control import SHELL_FAST, hermes_control_turn
+
+        if intent.action not in SHELL_FAST:
+            spoken = hermes_control_turn(chat_id, asked, action=intent.action)
+            if spoken:
+                return spoken
     pairs: list[tuple[str, str]] = []
     items: list[dict[str, str]] = []
-    if intent.action == "unknown" and channel == "p2p" and not force_facts:
-        refined = classify_intent(asked)
-        if refined is not None and refined.action not in {"unknown", ""}:
-            intent = refined
     if intent.action == "today_recap":
         return _today_recap_reply(
             chat_id,
             asked,
         )
     if intent.action == "unknown":
-        # Complex unknown → Hermes; short keyword unknown → doc search.
+        # P2P：禁止文档关键词澄清（D1）；一律 Hermes 或短提示。
+        if channel == "p2p":
+            if not force_facts and hermes_available():
+                spoken = hermes_partner_turn(asked)
+                if spoken:
+                    if chat_id:
+                        save_turn(
+                            chat_id,
+                            kind="action",
+                            query=asked,
+                            action="hermes",
+                        )
+                    return spoken
+            return _unknown_nudge(prev)
         if not looks_like_bare_search(asked):
-            if channel == "p2p" and not force_facts and hermes_available():
+            if not force_facts and hermes_available():
                 spoken = hermes_partner_turn(asked)
                 if spoken:
                     if chat_id:

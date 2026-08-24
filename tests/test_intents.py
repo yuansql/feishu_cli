@@ -36,7 +36,14 @@ class ParseIntentTests(unittest.TestCase):
         )
 
     def test_brief_aliases(self) -> None:
-        for text in ("早报", "简报", "昨天小结", "今日规划"):
+        for text in (
+            "早报",
+            "简报",
+            "昨天小结",
+            "今日规划",
+            "今日工作简报",
+            "每日工作简报",
+        ):
             self.assertEqual(parse_intent(text).action, "brief", text)
 
     def test_tasks_aliases(self) -> None:

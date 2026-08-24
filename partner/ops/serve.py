@@ -30,6 +30,7 @@ from ..office.followup import (
 )
 from ..core.inbox import append_item
 from ..routing.intents import parse_intent, strip_wake_prefix
+from ..routing.p2p_router import refine_p2p_intent
 from ..core.lark import find_lark_cli
 from ..compose.llm import (
     _looks_like_leak,
@@ -131,14 +132,16 @@ def send_checked(
 
 
 def reply_user(msg: InboundMessage) -> None:
+    channel = "group" if msg.chat_type == "group" else "p2p"
     intent = parse_intent(msg.text)
+    if channel == "p2p":
+        intent = refine_p2p_intent(msg.text, intent)
     _log(f"intent={intent.action} text={msg.text[:80]!r}")
     reacted = add_reaction(msg.message_id, ACK_EMOJI)
     _log("ack-react: " + reacted)
     if should_ack_text(intent.action):
         acked = send_checked(msg.chat_id, ack_line(intent.action), as_identity="bot")
         _log("ack-text: " + acked)
-    channel = "group" if msg.chat_type == "group" else "p2p"
     asked = strip_wake_prefix(msg.text)
     if channel == "p2p":
         try:

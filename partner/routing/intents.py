@@ -345,6 +345,17 @@ def looks_like_weekly_talk(raw: str) -> bool:
     return False
 
 
+def looks_like_daily_brief(raw: str) -> bool:
+    """Daily brief product — 工作简报 / 每日简报, not an alias list."""
+    q = _folded(raw or "")
+    key = q.lower()
+    if q in _BRIEF_EXACT or key in _BRIEF_EXACT:
+        return True
+    if "工作简报" in q or "每日简报" in q:
+        return True
+    return False
+
+
 def looks_like_bare_search(query: str) -> bool:
     """Unknown short keywords may search docs; complaint / rewrite sentences must not."""
     q = (query or "").strip()
@@ -363,6 +374,8 @@ def looks_like_bare_search(query: str) -> bool:
     if q in _DIGEST_EXACT or q in _WEEKLY_TASKS_EXACT:
         return False
     if looks_like_person_talk(q) or looks_like_task_done(q) or looks_like_plan(q):
+        return False
+    if looks_like_daily_brief(q):
         return False
     if looks_like_write_doc(q):
         return False
@@ -767,7 +780,7 @@ def parse_intent(text: str) -> Intent:
         return Intent(action="weekly")
     if folded in _TODAY_EXACT or key in _TODAY_EXACT:
         return Intent(action="today")
-    if folded in _BRIEF_EXACT or key in _BRIEF_EXACT:
+    if looks_like_daily_brief(raw) or folded in _BRIEF_EXACT or key in _BRIEF_EXACT:
         return Intent(action="brief")
     if folded in _TOMORROW_EXACT or key in _TOMORROW_EXACT:
         return Intent(action="tomorrow")

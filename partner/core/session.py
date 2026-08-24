@@ -43,7 +43,7 @@ def looks_like_followup(raw: str) -> bool:
         return False
     if pick_index(text) is not None:
         return True
-    if text in {"继续", "那个", "这个", "上面的", "刚才那个"}:
+    if text in {"继续", "那个", "这个", "上面的", "刚才那个", "需要", "要", "好", "好的", "行", "重试", "再说一次", "再试一次"}:
         return True
     return any(word in text for word in _FOLLOW)
 

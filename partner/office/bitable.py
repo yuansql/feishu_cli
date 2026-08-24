@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 import json
 import os
 from pathlib import Path
@@ -13,6 +13,8 @@ from .followup import (
     add_bitable_hit,
     digest_text,
     load_items,
+    record_mentions_user,
+    record_submit_date,
     weekly_rows,
 )
 from ..compose.formatters import format_lark_error
@@ -356,10 +358,18 @@ def _who_from_fields(fields: dict[str, Any]) -> str:
     return "有人"
 
 
-def scan_bitable() -> str:
-    from ..actions import send_text
-    from .followup import record_mentions_user
+def _record_title(fields: dict[str, Any]) -> str:
+    for key in ("Bug描述", "标题", "title", "缺陷", "任务", "名称"):
+        val = str(fields.get(key) or "").strip()
+        if val:
+            return val[:80]
+    return ""
 
+
+def scan_bitable(*, today: date | None = None) -> str:
+    from ..actions import send_text
+
+    today = today or datetime.now().date()
     cfg = load_config()
     tables = list(cfg.get("scan_tables") or [])
     extra = os.environ.get("FEISHU_PARTNER_SCAN_TABLES") or ""
@@ -371,7 +381,10 @@ def scan_bitable() -> str:
             token, table = chunk.split(":", 1)
             tables.append({"base_token": token.strip(), "table": table.strip()})
     if not tables:
-        return "没有配置要扫的表。把 scan_tables 写进 ~/.feishu-partner/bitable.json。"
+        return (
+            "没有配置要扫的表。把 scan_tables 写进 ~/.feishu-partner/bitable.json。\n"
+            "例：AR101 缺陷表 base=OUDhbl3qZarmnNsMcQPcunNWnZd table=tblwwvOxUAIokY9t"
+        )
     seen = _load_seen()
     notes: list[str] = []
     for spec in tables:
@@ -379,21 +392,24 @@ def scan_bitable() -> str:
             continue
         token = str(spec.get("base_token") or spec.get("app_token") or "")
         table = str(spec.get("table") or spec.get("table_id") or "")
+        view_id = str(spec.get("view_id") or spec.get("view") or "")
+        label = str(spec.get("name") or spec.get("label") or "多维表")
+        lookback = int(spec.get("lookback_days") or 14)
         if not token or not table:
             continue
-        payload = run_lark(
-            [
-                "base",
-                "+record-list",
-                "--base-token",
-                token,
-                "--table-id",
-                table,
-                "--limit",
-                "100",
-            ],
-            as_identity="user",
-        )
+        argv = [
+            "base",
+            "+record-list",
+            "--base-token",
+            token,
+            "--table-id",
+            table,
+            "--limit",
+            "200",
+        ]
+        if view_id:
+            argv.extend(["--view-id", view_id])
+        payload = run_lark(argv, as_identity="user")
         if not _ok(payload):
             notes.append(format_lark_error(payload))
             continue
@@ -402,21 +418,33 @@ def scan_bitable() -> str:
             if not rid or rid in seen:
                 continue
             fields = _fields_of(rec)
-            if not record_mentions_user(
+            mentions = record_mentions_user(
                 fields, names=USER_NAMES, user_open_id=USER_OPEN_ID
-            ):
+            )
+            submitted = record_submit_date(fields)
+            within = (
+                submitted is None
+                or (today - submitted).days <= lookback
+            )
+            seen.add(rid)
+            if not mentions:
+                continue
+            if not within:
                 continue
             who = _who_from_fields(fields)
-            title = str(fields.get("标题") or fields.get("title") or fields.get("缺陷") or "")[:80]
-            line = f"今天{who}在表格里艾特你了"
+            title = _record_title(fields)
+            line = f"【{label}】{who}指派你了"
             if title:
                 line += f"：{title}"
+            if submitted:
+                line += f"（{submitted.isoformat()}）"
             sent = send_text(P2P_CHAT_ID, line, as_identity="bot")
             if sent != "已发送。":
                 notes.append("艾特通知没发出：" + sent)
                 continue
-            add_bitable_hit(who=who, title=title or line, record_id=rid, table=table)
-            seen.add(rid)
+            add_bitable_hit(
+                who=who, title=title or line, record_id=rid, table=label
+            )
             notes.append(line)
     _save_seen(seen)
     return "\n".join(notes) if notes else "这轮表格里没有新的艾特。"

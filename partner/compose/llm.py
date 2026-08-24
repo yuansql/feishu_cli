@@ -170,6 +170,7 @@ _CLASSIFY_PROMPT = (
     "明天任务/明天的任务/明日任务 → tomorrow，不要用 tasks。\n"
     "今天的任务/今日任务 → today，不要用 tasks。tasks 只给「待办」「我的任务」。\n"
     "我今天干了什么/读今天消息做回顾 → today_recap，不要用 today。\n"
+    "今日工作简报/每日工作简报/工作简报 → brief，不要用 search、today 或 help。\n"
     "只有明确要搜文档才用 search。找群用 chats。\n"
     '只输出一行 JSON，例如 {"action":"person","query":"张三"}\n\n'
     "用户："
@@ -599,41 +600,6 @@ def rewrite_plan(goal: str, facts: str, *, timeout: int = 60) -> str:
         return ""
     return text.strip()
 
-
-def draft_doc_edit(
-    instruction: str,
-    document: str,
-    facts: str = "",
-    *,
-    previous_draft: str = "",
-    timeout: int = 60,
-) -> str:
-    """Draft only the replacement text; writing remains behind explicit confirmation."""
-    if os.environ.get("FEISHU_PARTNER_NO_LLM") == "1":
-        return ""
-    prompt = (
-        f"你是{_owner()}的飞书工作伙伴。根据用户要求、目标文档片段和【工作事实】，"
-        "起草将写入文档的工作条目列表。\n"
-        "只输出草稿正文，不解释、不输出标题“草稿”、不调用工具、不声称已经写入。\n"
-        "【工作事实】里「本周完成/推进中/对话证据」优先；只能写材料里能核验的事，"
-        "不许编造人名、进度、日期或结果。\n"
-        "每条一行，写成完整工作短句（可带月日如 8/17），禁止残缺日期（如单独 /17）、"
-        "禁止把【工作内容】【工作安排】这类标题当成条目。\n"
-        "用户说几句/几条就严格控制数量；没有指定时写 6-10 条。\n"
-        "若有上一版草稿：保留仍正确的条目并扩写补充，不要原样复读空标题版。\n\n"
-        f"【用户要求】\n{(instruction or '').strip()[:1000]}\n\n"
-        f"【目标文档片段】\n{(document or '').strip()[:3500]}\n\n"
-        f"【工作事实】\n{(facts or '').strip()[:7000]}\n\n"
-        f"【上一版草稿】\n{(previous_draft or '').strip()[:2500]}"
-    )
-    text = _invoke_hermes(prompt, timeout=timeout)
-    if not text or "FETCH:" in text or not _is_usable_reply(text, limit=2500):
-        return ""
-    cleaned = text.strip()
-    if cleaned.startswith("```") and cleaned.endswith("```"):
-        cleaned = re.sub(r"^```[^\n]*\n?", "", cleaned)
-        cleaned = re.sub(r"\n?```$", "", cleaned)
-    return cleaned.strip()
 
 
 _BRIEF_STOP = (

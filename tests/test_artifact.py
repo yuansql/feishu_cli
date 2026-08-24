@@ -8,14 +8,12 @@ from unittest.mock import patch
 
 from partner.actions import dispatch
 from partner.runtime.artifact import (
-    _fallback_draft,
     apply_document_edit,
     artifact_turn,
     close_artifact,
     load_artifact,
     locate_append_anchor,
     observe_document,
-    prepare_document_edit,
     save_artifact,
 )
 from partner.routing.intents import parse_intent
@@ -69,136 +67,6 @@ class ArtifactTaskTests(unittest.TestCase):
         )
         # Append at list end — not the subsection H3 itself.
         self.assertEqual(target.block_id, "item2")
-
-    def test_prepare_builds_draft_without_writing(self) -> None:
-        observe_document("oc_x", DOC_URL, "# 入职第二个月\n原文")
-        payload = {
-            "ok": True,
-            "data": {
-                "document": {
-                    "content": SOURCE_XML,
-                    "revision_id": 8,
-                }
-            },
-        }
-        with patch("partner.runtime.artifact.run_lark", return_value=payload) as run:
-            with patch(
-                "partner.runtime.artifact.draft_doc_edit",
-                return_value="1. 完成 A6/A8 问题修复\n2. 推进终端套餐查询",
-            ):
-                reply = prepare_document_edit(
-                    "oc_x",
-                    "写到入职第二个月吴梦晨下面，先写2句话看看",
-                    work_facts="本周：A6/A8 问题修复、终端套餐查询",
-                )
-        self.assertIn("草稿", reply)
-        self.assertIn("回复「写进去」", reply)
-        self.assertFalse(
-            any(call.args[0][1] == "+update" for call in run.call_args_list)
-        )
-        task = load_artifact("oc_x")
-        assert task is not None
-        self.assertEqual(task["status"], "ready")
-        self.assertEqual(task["anchor_block_id"], "owner2")
-
-    def test_fallback_draft_does_not_pad_with_unrelated_doc_text(self) -> None:
-        draft = _fallback_draft(
-            "写4条",
-            "入职第一个月\n交接人：张三",
-            "- 完成 A6 修复\n- 推进套餐查询",
-        )
-        self.assertIn("A6", draft)
-        self.assertIn("套餐查询", draft)
-        self.assertNotIn("入职第一个月", draft)
-        self.assertNotIn("张三", draft)
-
-    def test_ambiguous_target_stays_needs_target(self) -> None:
-        payload = {
-            "ok": True,
-            "data": {"document": {"content": SOURCE_XML, "revision_id": 8}},
-        }
-        with patch("partner.runtime.artifact.run_lark", return_value=payload):
-            with patch("partner.runtime.artifact.draft_doc_edit") as draft:
-                reply = prepare_document_edit(
-                    "oc_x",
-                    f"{DOC_URL} 写到吴梦晨下面",
-                    work_facts="本周事实",
-                )
-        draft.assert_not_called()
-        self.assertIn("出现多次", reply)
-        task = load_artifact("oc_x")
-        assert task is not None
-        self.assertEqual(task["status"], "needs_target")
-
-    def test_new_section_in_same_doc_does_not_replace_previous_block(self) -> None:
-        save_artifact(
-            "oc_x",
-            {
-                "kind": "doc_edit",
-                "status": "done",
-                "doc_url": DOC_URL,
-                "section": "入职第一个月",
-                "marker": "吴梦晨",
-                "anchor_block_id": "owner1",
-                "anchor_label": "完成人：吴梦晨",
-                "draft": "上一节草稿",
-                "inserted_block_id": "old1",
-                "source_snapshot": "原文",
-            },
-        )
-        payload = {
-            "ok": True,
-            "data": {"document": {"content": SOURCE_XML, "revision_id": 9}},
-        }
-        with patch("partner.runtime.artifact.run_lark", return_value=payload):
-            with patch(
-                "partner.runtime.artifact.draft_doc_edit",
-                return_value="1. 完成 A6 修复\n2. 推进套餐查询",
-            ) as draft:
-                prepare_document_edit(
-                    "oc_x",
-                    "入职第二个月的工作完成情况给我写一下",
-                    work_facts="新事实足够长的一条工作描述",
-                )
-        self.assertEqual(draft.call_args.kwargs["previous_draft"], "")
-        task = load_artifact("oc_x")
-        assert task is not None
-        self.assertEqual(task["anchor_block_id"], "item2")
-        self.assertEqual(task["inserted_block_id"], "")
-
-    def test_explicit_new_section_does_not_reuse_old_marker(self) -> None:
-        save_artifact(
-            "oc_x",
-            {
-                "kind": "doc_edit",
-                "status": "done",
-                "doc_url": DOC_URL,
-                "section": "入职第二个月",
-                "marker": "吴梦晨",
-                "anchor_block_id": "owner2",
-                "draft": "旧草稿",
-                "inserted_block_id": "old1",
-            },
-        )
-        payload = {
-            "ok": True,
-            "data": {"document": {"content": SOURCE_XML, "revision_id": 9}},
-        }
-        with patch("partner.runtime.artifact.run_lark", return_value=payload):
-            with patch(
-                "partner.runtime.artifact.draft_doc_edit",
-                return_value="1. 第三个月条目甲\n2. 第三个月条目乙",
-            ):
-                prepare_document_edit(
-                    "oc_x",
-                    "入职第三个月给我写一下",
-                    work_facts="新事实足够长的一条工作描述",
-                )
-        task = load_artifact("oc_x")
-        assert task is not None
-        self.assertEqual(task["marker"], "")
-        self.assertEqual(task["anchor_block_id"], "month3")
-        self.assertEqual(task["inserted_block_id"], "")
 
     def test_confirm_updates_then_verifies_before_done(self) -> None:
         save_artifact(

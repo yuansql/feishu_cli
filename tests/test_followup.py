@@ -388,6 +388,16 @@ class BitableScanTests(unittest.TestCase):
                 user_open_id=USER,
             )
         )
+        self.assertTrue(
+            record_mentions_user(
+                {
+                    "Bug描述": "大模型切换",
+                    "指派人": [{"id": USER, "name": "吴梦晨"}],
+                },
+                names=("吴梦晨",),
+                user_open_id=USER,
+            )
+        )
         self.assertFalse(
             record_mentions_user(
                 {"标题": "请王五处理"},
@@ -395,6 +405,15 @@ class BitableScanTests(unittest.TestCase):
                 user_open_id=USER,
             )
         )
+
+    def test_record_submit_date(self) -> None:
+        from partner.office.followup import record_submit_date
+
+        self.assertEqual(
+            record_submit_date({"提交时间": "2026-08-21"}),
+            date(2026, 8, 21),
+        )
+        self.assertIsNone(record_submit_date({"标题": "无日期"}))
 
     def test_scan_interval(self) -> None:
         self.assertTrue(should_scan_bitable(0.0, 180.0))

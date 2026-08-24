@@ -40,7 +40,7 @@ class PartnerLoopTests(unittest.TestCase):
     def test_unknown_complex_prefers_hermes(self) -> None:
         with patch("partner.actions.hermes_available", return_value=True):
             with patch(
-                "partner.actions.hermes_partner_turn",
+                "partner.runtime.hermes_control.hermes_control_turn",
                 return_value="我先看了 digest，今天优先跟测试群。",
             ) as hermes:
                 out = dispatch(
@@ -103,13 +103,15 @@ class PartnerLoopTests(unittest.TestCase):
         self.assertIn("A6 上线", out)
 
     def test_read_my_chats_routes_to_chats(self) -> None:
-        with patch("partner.actions.chats_text", return_value="会话 3 个：") as chats:
-            out = dispatch(
-                Intent(action="chats", query=""),
-                user_text="读取我的聊天",
-                channel="p2p",
-                chat_id="oc_p2p",
-            )
+        with patch("partner.actions.hermes_available", return_value=False):
+            with patch("partner.actions.should_partner", return_value=False):
+                with patch("partner.actions.chats_text", return_value="会话 3 个：") as chats:
+                    out = dispatch(
+                        Intent(action="chats", query=""),
+                        user_text="读取我的聊天",
+                        channel="p2p",
+                        chat_id="oc_p2p",
+                    )
         chats.assert_called_once_with("")
         self.assertEqual(out, "会话 3 个：")
 

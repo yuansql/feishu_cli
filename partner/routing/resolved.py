@@ -98,6 +98,8 @@ def looks_like_instruction_blob(raw: str) -> bool:
     text = (raw or "").strip()
     if not text:
         return False
+    if _SECTION_DONE_RE.search(text) and any(word in text for word in _DONE):
+        return False
     if len(_NUMBERED_ITEM_RE.findall(text)) >= 2:
         return True
     return any(marker in text for marker in _INSTRUCTION_MARKERS)
@@ -128,17 +130,39 @@ def looks_like_resolve(raw: str) -> bool:
     return any(word in text for word in _DONE)
 
 
-def looks_like_pending_section_done(raw: str) -> bool:
-    """「待处理 / 待回复（2项）已经完成」→ 整批销简报 pending。"""
-    text = (raw or "").strip()
-    if not text or not looks_like_resolve(text):
-        return False
-    if not _SECTION_DONE_RE.search(text):
-        return False
+def quoted_brief_pending(
+    raw: str, items: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """回引简报「待处理 / 待回复」整段 + 已解决 → 销简报 pending，不误销同名跟进账。"""
+    text = raw or ""
+    if not looks_like_resolve(text) or not _SECTION_DONE_RE.search(text):
+        return []
+    open_items = [
+        item
+        for item in items
+        if item.get("key") and not is_resolved(str(item.get("key") or ""))
+    ]
+    if not open_items:
+        return []
     leftover = resolve_hint(text)
     leftover = re.sub(r"\d+\s*项?", " ", leftover)
     leftover = re.sub(r"[/\s]+", "", leftover)
-    return not leftover
+    if not leftover:
+        return open_items
+    blob = re.sub(r"\s+", " ", text)
+    hits: list[dict[str, Any]] = []
+    for item in open_items:
+        snippet = re.sub(r"\s+", " ", str(item.get("text") or "")).strip()
+        if not snippet:
+            continue
+        if snippet[:12] in blob or (len(snippet) >= 8 and snippet[:8] in blob):
+            hits.append(item)
+    return hits
+
+
+def looks_like_pending_section_done(raw: str) -> bool:
+    """「待处理 / 待回复（2项）已经完成」→ 整批销简报 pending。"""
+    return bool(quoted_brief_pending(raw, load_pending()))
 
 
 def resolve_hint(raw: str) -> str:
@@ -201,6 +225,7 @@ def mark_resolved(
     if not token:
         return False
     if is_resolved(token):
+        drop_pending(token)
         return True
     dest = resolved_path()
     try:
@@ -216,7 +241,21 @@ def mark_resolved(
             fh.write(json.dumps(row, ensure_ascii=False) + "\n")
     except OSError:
         return False
-    return is_resolved(token)
+    if not is_resolved(token):
+        return False
+    drop_pending(token)
+    return True
+
+
+def drop_pending(key: str) -> None:
+    """Aily-like: 销账 = 从待处理本子拿掉，不只写 skip 名单。"""
+    token = (key or "").strip()
+    if not token:
+        return
+    items = load_pending()
+    kept = [item for item in items if str(item.get("key") or "") != token]
+    if len(kept) != len(items):
+        save_pending(kept)
 
 
 def save_pending(items: list[dict[str, Any]]) -> None:
@@ -259,10 +298,15 @@ def match_pending(hint: str, items: list[dict[str, Any]]) -> list[dict[str, Any]
     name_hits: list[dict[str, Any]] = []
     for item in open_items:
         name = str(item.get("chat_name") or "")
+        who = str(item.get("sender_name") or "")
         text = str(item.get("text") or "").strip()
         if text and (text in needle or needle in text):
             text_hits.append(item)
-        elif needle in name or (name and name in needle):
+        elif any(
+            needle in label or (label and label in needle)
+            for label in (name, who)
+            if label
+        ):
             name_hits.append(item)
     return text_hits or name_hits
 
@@ -327,12 +371,10 @@ def resolve_text(raw: str) -> str:
     items = load_pending()
     hint = resolve_hint(raw)
     followups = open_followups_as_pending()
-    if looks_like_pending_section_done(raw):
-        open_pending = match_pending("", items)
-        if not open_pending:
-            return "待处理里已经没有条目了。"
+    quoted = quoted_brief_pending(raw, items)
+    if quoted:
         closed = 0
-        for item in open_pending:
+        for item in quoted:
             key = str(item.get("key") or "")
             if mark_resolved(
                 key,
@@ -346,7 +388,7 @@ def resolve_text(raw: str) -> str:
         return f"已记下，待处理 / 待回复共 {closed} 条，明早简报不再催。"
     reply = assign_reply_body(raw)
     if reply:
-        quoted = (raw or "").partition("\n\n")[0]
+        quoted_head = (raw or "").partition("\n\n")[0]
         hits = [
             item
             for item in followups
@@ -356,7 +398,7 @@ def resolve_text(raw: str) -> str:
                     "text": item.get("text"),
                 }
             )
-            == quoted
+            == quoted_head
         ]
         if len(hits) == 1:
             item = hits[0]
@@ -373,17 +415,23 @@ def resolve_text(raw: str) -> str:
         return "我读到了你回复的原消息，但它已经不在待处理里；没有动其他条。"
     weak = not hint
     if weak:
-        hits = match_pending("", followups)
+        hits = match_pending("", items)
         if not hits:
-            hits = match_pending("", items) or match_pending("", inbox_as_pending())
+            hits = match_pending("", followups)
+        if not hits:
+            hits = match_pending("", inbox_as_pending())
     else:
-        hits = match_pending(hint, followups)
+        hits = match_pending(hint, items)
         if not hits:
-            hits = match_pending(hint, items)
+            hits = match_pending(hint, followups)
         if not hits:
             hits = match_pending(hint, inbox_as_pending())
     if not hits:
-        leftover = followups or match_pending("", items) or match_pending("", inbox_as_pending())
+        leftover = (
+            match_pending("", items)
+            or followups
+            or match_pending("", inbox_as_pending())
+        )
         if leftover:
             return "没对上待处理。当前还有：\n" + _list_items(leftover)
         return "没对上待处理，本地也没有今早那批待办。先说「简报」我再列一次。"

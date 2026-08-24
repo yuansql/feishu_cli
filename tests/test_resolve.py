@@ -13,6 +13,7 @@ from partner.routing.intents import parse_intent
 from partner.compose.llm import should_partner
 from partner.routing.resolved import (
     is_resolved,
+    load_pending,
     mark_resolved,
     match_pending,
     pending_card,
@@ -52,6 +53,15 @@ class ResolveIntentTests(unittest.TestCase):
         ):
             intent = parse_intent(text)
             self.assertEqual(intent.action, "resolve", text)
+
+    def test_quoted_brief_pending_section_is_resolve(self) -> None:
+        text = (
+            "⚠️ 待处理 / 待回复（2项）\n"
+            "1. 邱俊立（平台后端研发）：@吴梦晨 配一下.env（进行中·已追问未答完）\n"
+            "2. 邱俊立（平台后端研发）：@吴梦晨 @周少华 这台服务器是  10.12.3.230\n"
+            "已经解决了"
+        )
+        self.assertEqual(parse_intent(text).action, "resolve")
 
     def test_weekly_instruction_blob_not_resolve(self) -> None:
         text = (
@@ -145,6 +155,7 @@ class LedgerTests(unittest.TestCase):
         self.assertNotIn("【摘录】", reply)
         self.assertNotIn("文档", reply)
         self.assertTrue(is_resolved("om:om_app1"))
+        self.assertEqual(load_pending(), [])
 
     def test_resolve_text_asks_when_ambiguous(self) -> None:
         save_pending(
@@ -169,7 +180,7 @@ class LedgerTests(unittest.TestCase):
                     "chat_id": "oc_app",
                     "chat_name": "APP沟通群",
                     "text": "主分支同步一下",
-                    "ts": "2026-08-16T18:00:00+08:00",
+                    "ts": "2026-08-24T10:00:00+08:00",
                 },
                 ensure_ascii=False,
             )
@@ -345,6 +356,118 @@ class LedgerTests(unittest.TestCase):
         self.assertIn("明早简报", reply)
         self.assertTrue(is_resolved("om:a"))
         self.assertTrue(is_resolved("om:b"))
+        self.assertEqual(load_pending(), [])
+
+    def test_quoted_brief_card_closes_pending_not_same_name_followup(self) -> None:
+        from partner.office.followup import load_items, save_items
+
+        save_pending(
+            [
+                {
+                    "key": "om:env",
+                    "chat_name": "平台后端研发",
+                    "sender_name": "邱俊立",
+                    "text": "@吴梦晨 配一下.env",
+                    "tag": "进行中·已追问未答完",
+                },
+                {
+                    "key": "om:svr",
+                    "chat_name": "平台后端研发",
+                    "sender_name": "邱俊立",
+                    "text": "@吴梦晨 @周少华 这台服务器是  10.12.3.230，因为证书共用的问题",
+                    "tag": "进行中·已追问未答完",
+                },
+            ]
+        )
+        save_items(
+            [
+                {
+                    "id": "fu:qiu-m8",
+                    "kind": "direct",
+                    "asker_name": "邱俊立",
+                    "chat_name": "邱俊立",
+                    "text": "好好体验下M8p，写份体验总结给我",
+                    "status": "open",
+                }
+            ]
+        )
+        raw = (
+            "⚠️ 待处理 / 待回复（2项）\n"
+            "1. 邱俊立（平台后端研发）：@吴梦晨 配一下.env（进行中·已追问未答完）\n"
+            "2. 邱俊立（平台后端研发）：@吴梦晨 @周少华 这台服务器是  10.12.3.230，"
+            "因为证书共用的问题，部署到这台机器上了\n"
+            "已经解决了"
+        )
+        reply = resolve_text(raw)
+        self.assertIn("2", reply)
+        self.assertIn("待处理", reply)
+        self.assertTrue(is_resolved("om:env"))
+        self.assertTrue(is_resolved("om:svr"))
+        self.assertEqual(load_items()[0]["status"], "open")
+        self.assertEqual(load_pending(), [])
+
+    def test_flattened_brief_quote_closes_pending(self) -> None:
+        save_pending(
+            [
+                {
+                    "key": "om:env",
+                    "chat_name": "平台后端研发",
+                    "text": "@吴梦晨 配一下.env",
+                    "tag": "进行中·已追问未答完",
+                },
+                {
+                    "key": "om:svr",
+                    "chat_name": "平台后端研发",
+                    "text": "@吴梦晨 @周少华 这台服务器是  10.12.3.230，因为证书共用的问题",
+                    "tag": "进行中·已追问未答完",
+                },
+            ]
+        )
+        raw = (
+            "⚠️ 待处理 / 待回复（2项） "
+            "1. 邱俊立（平台后端研发）：@吴梦晨 配一下.env（进行中·已追问未答完） "
+            "2. 邱俊立（平台后端研发）：@吴梦晨 @周少华 这台服务器是  10.12.3.230，"
+            "因为证书共用的问题，部署到这台机器上了 "
+            "已经解决了"
+        )
+        reply = resolve_text(raw)
+        self.assertIn("2", reply)
+        self.assertTrue(is_resolved("om:env"))
+        self.assertTrue(is_resolved("om:svr"))
+        self.assertEqual(load_pending(), [])
+
+    def test_same_person_closes_brief_pending_not_followup_ledger(self) -> None:
+        from partner.office.followup import load_items, save_items
+
+        save_pending(
+            [
+                {
+                    "key": "om:env",
+                    "chat_name": "平台后端研发",
+                    "sender_name": "邱俊立",
+                    "text": "@吴梦晨 配一下.env",
+                    "tag": "进行中·已追问未答完",
+                }
+            ]
+        )
+        save_items(
+            [
+                {
+                    "id": "fu:qiu-m8",
+                    "kind": "direct",
+                    "asker_name": "邱俊立",
+                    "chat_name": "邱俊立",
+                    "text": "好好体验下M8p，写份体验总结给我",
+                    "status": "open",
+                }
+            ]
+        )
+        reply = resolve_text("邱俊立那条已经解决了")
+        self.assertIn("已记下", reply)
+        self.assertIn("平台后端研发", reply)
+        self.assertTrue(is_resolved("om:env"))
+        self.assertEqual(load_pending(), [])
+        self.assertEqual(load_items()[0]["status"], "open")
 
 
 class CardTests(unittest.TestCase):

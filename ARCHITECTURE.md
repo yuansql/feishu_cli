@@ -14,7 +14,7 @@
 **不做**：把伙伴改成「Hermes 直连飞书、全技能可写」的第二网关（能力面大、失控面也大）。
 
 短指令（今天 / 待办 / 简报 / 帮助 / 销账 / 写入确认…）仍走 `office` 快路径。  
-其余单聊（含读文档、调整、跟进「不符合格式」）→ `hermes_control_turn`：壳只供 sticky 文档 seed，**禁止壳模板抢答**。长任务细节见 [RUNTIME_V2.md](RUNTIME_V2.md)。
+**P2P 自然语言**：`parse_intent` 认不出 → serve 里 `p2p_router` 调 Hermes 分类（发卡用）；其余交 `hermes_control_turn`。**禁止**文档关键词澄清。
 
 | 层 | 实际技术 |
 |---|---|
@@ -51,7 +51,7 @@ partner/
 ```text
 飞书消息
   → ops/serve（WS event）
-  → routing/intents + actions.dispatch
+  → routing/intents + **p2p_router**（unknown→Hermes 分类）+ actions.dispatch
   → office_* 取数 或 runtime/runner（任务模式）
   → compose/llm（单聊润色，可关）
   → core/lark（bot 回复）

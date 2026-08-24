@@ -605,10 +605,38 @@ def record_mentions_user(
     names: tuple[str, ...] = (),
     user_open_id: str = "",
 ) -> bool:
+    """True when user is @ in person fields (指派人/负责人) or plain text."""
+    if not isinstance(fields, dict):
+        fields = {}
+    person_keys = ("指派人", "负责人", "相关人员", "协作人", "处理人")
+    for key in person_keys:
+        val = fields.get(key)
+        if not isinstance(val, list):
+            continue
+        for person in val:
+            if not isinstance(person, dict):
+                continue
+            oid = str(person.get("id") or person.get("open_id") or "")
+            if user_open_id and oid == user_open_id:
+                return True
+            pname = str(person.get("name") or "")
+            if pname and any(name and name == pname for name in names):
+                return True
     blob = json.dumps(fields, ensure_ascii=False)
     if user_open_id and user_open_id in blob:
         return True
     return any(name and name in blob for name in names)
+
+
+def record_submit_date(fields: dict[str, Any]) -> date | None:
+    for key in ("提交时间", "创建时间", "完成时间"):
+        raw = fields.get(key)
+        if isinstance(raw, str) and len(raw) >= 10:
+            try:
+                return date.fromisoformat(raw[:10])
+            except ValueError:
+                continue
+    return None
 
 
 def should_scan_bitable(last: float, now: float, every: float = SCAN_EVERY) -> bool:
