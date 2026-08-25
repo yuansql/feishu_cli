@@ -441,6 +441,56 @@ class FormatBriefTests(unittest.TestCase):
         self.assertNotIn("</p>", blob)
         self.assertIn("记得提前熟悉飞猫听见功能", blob)
 
+    def test_brief_card_scrubs_image_md_and_keeps_yesterday(self) -> None:
+        card = brief_card(
+            {
+                "today": "2026-08-25",
+                "workday": "2026-08-24",
+                "progressed": ["早会（已结束）"],
+                "unreplied": [
+                    "杨庆海（APP沟通群）：@吴梦晨 ![Image](img_v3_abc)（进行中·已追问未答完）"
+                ],
+                "long_term": [],
+                "today_agenda": [],
+                "today_entries": [
+                    {
+                        "title": "A6 - 再次讨论",
+                        "start": "14:00",
+                        "end": "15:00",
+                        "organizer": "侯帅臣",
+                        "rsvp": "已接受",
+                        "app_link": "https://applink.feishu.cn/client/calendar/event/detail?key=a6",
+                    }
+                ],
+                "priorities": [],
+                "week_notes": [],
+                "pending": [],
+            },
+            followups="- 陈星丞（AR101缺陷）大模型切换",
+        )
+        blob = str(card)
+        self.assertIn("一、昨天小结", blob)
+        self.assertIn("二、今天规划", blob)
+        self.assertIn("要跟的活", blob)
+        self.assertIn("陈星丞", blob)
+        self.assertIn("[图片]", blob)
+        self.assertNotIn("![Image]", blob)
+        self.assertNotIn("img_v3_abc", blob)
+
+    def test_pending_brief_line_scrubs_image_and_keeps_link(self) -> None:
+        line = pending_brief_line(
+            {
+                "sender_name": "杨庆海",
+                "chat_name": "APP沟通群",
+                "text": "@吴梦晨 ![Image](img_v3_x)",
+                "tag": "进行中·已追问未答完",
+                "link": "https://applink.feishu.cn/client/chat/open?openChatId=oc_x",
+            }
+        )
+        self.assertIn("[图片]", line)
+        self.assertNotIn("![Image]", line)
+        self.assertIn("applink.feishu.cn", line)
+
     def test_day_work_card_matches_brief_chrome(self) -> None:
         card = day_work_card(
             kind="tomorrow",
@@ -482,7 +532,7 @@ class FormatBriefTests(unittest.TestCase):
         )
         self.assertEqual(
             line,
-            "胡柳斌（AI品沟通群）：设备关机了APP设置为何生效（未完成·未回复）",
+            "胡柳斌（AI品沟通群）：设备关机了APP设置为何生效（未完成·未回复） https://applink.feishu.cn/x",
         )
 
 
@@ -549,16 +599,20 @@ class PushOnceTests(unittest.TestCase):
             stamp = Path(tmp) / "brief-sent.on"
             with patch("partner.office.brief.STAMP", stamp):
                 with patch("partner.office.brief._collect", return_value=data):
-                    with patch("partner.actions.send_card", side_effect=slow_card):
-                        with patch("partner.actions.send_text"):
-                            threads = [
-                                threading.Thread(target=run)
-                                for _ in range(2)
-                            ]
-                            for thread in threads:
-                                thread.start()
-                            for thread in threads:
-                                thread.join(timeout=3)
+                    with patch(
+                        "partner.office.followup.followups_for_command",
+                        return_value="",
+                    ):
+                        with patch("partner.actions.send_card", side_effect=slow_card):
+                            with patch("partner.actions.send_text"):
+                                threads = [
+                                    threading.Thread(target=run)
+                                    for _ in range(2)
+                                ]
+                                for thread in threads:
+                                    thread.start()
+                                for thread in threads:
+                                    thread.join(timeout=3)
         self.assertEqual(sends, ["card"])
 
 

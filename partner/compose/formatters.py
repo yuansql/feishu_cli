@@ -26,12 +26,20 @@ def _strip_highlight(text: str) -> str:
 
 
 def plain_im_text(text: str) -> str:
-    """IM HTML → one-line markdown. Card markdown cannot render raw <p>."""
+    """IM HTML → one-line markdown. Card markdown cannot render raw <p> or img keys."""
     raw = html.unescape(text or "")
     raw = re.sub(r"(?i)<br\s*/?>", "\n", raw)
     raw = re.sub(r"(?i)</p>", "\n", raw)
     raw = re.sub(r"<[^>]+>", "", raw)
-    return re.sub(r"[ \t]+", " ", raw.replace("\n", " ")).strip()
+    raw = re.sub(r"[ \t]+", " ", raw.replace("\n", " ")).strip()
+
+    def _img(match: re.Match[str]) -> str:
+        url = (match.group(1) or "").strip()
+        if url.startswith("http://") or url.startswith("https://"):
+            return f"[图片] {url}"
+        return "[图片]"
+
+    return re.sub(r"!\[[^\]]*\]\(([^)]*)\)", _img, raw)
 
 
 def _when(value: Any) -> str:

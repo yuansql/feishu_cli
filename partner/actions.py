@@ -89,7 +89,7 @@ from .compose.llm import (
     salvage_spoken_reply,
     _is_usable_reply,
 )
-from .routing.resolved import ensure_pending_snapshot, resolve_text
+from .routing.resolved import ensure_pending_snapshot, pending_detail_text, resolve_text
 from .core.session import load_turn, looks_like_followup, pick_index, save_turn
 from .runtime.planner import plan_text
 from .office.recap import looks_like_recap_followup, today_recap
@@ -415,6 +415,19 @@ def dispatch(
                 items=list((prev or {}).get("items") or []),
             )
         return reply
+    # 回引简报待回复 +「详细些」：看 pending.json，不依赖 session（09:00 推送不写 session）。
+    if intent.action == "unknown" and looks_like_followup(asked):
+        if not (prev and prev.get("pairs")):
+            detail = pending_detail_text(asked)
+            if detail:
+                if chat_id:
+                    save_turn(
+                        chat_id,
+                        kind="action",
+                        query=asked,
+                        action="pending_detail",
+                    )
+                return detail
     if prev and looks_like_followup(asked):
         steal_weekly = intent.action == "weekly" and asked.strip() in {
             "继续",

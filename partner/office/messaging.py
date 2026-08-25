@@ -396,15 +396,18 @@ def send_style_card(intent: Intent, chat_id: str) -> bool:
     if not chat_id or intent.action not in {'brief', 'today', 'tomorrow'}:
         return False
     card: dict[str, Any] | None = None
-    if intent.action == 'brief':
+    if intent.action in {'brief', 'today'}:
+        # 「今天」也发完整简报卡：昨天小结 + 今天规划 + 要跟的活，避免只剩日程显得少东西
         from .brief import collect_brief
         from .brief_card import brief_card
-        card = brief_card(collect_brief())
+        from .followup import followups_for_command
+
+        card = brief_card(collect_brief(), followups=followups_for_command())
     else:
         from .brief import agenda_entries
         from .brief_card import day_work_card
         from .followup import followups_for_command
-        offset = 1 if intent.action == 'tomorrow' else 0
+        offset = 1
         start, end = _day_bounds(offset)
         entries = agenda_entries(_agenda_range(start, end))
         tasks = run_lark(['task', '+get-my-tasks', '--complete=false', '--page-limit', '20'], as_identity='user')

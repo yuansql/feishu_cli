@@ -166,16 +166,27 @@ def _pending_blocks(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
-def brief_card(data: dict[str, Any]) -> dict[str, Any]:
+def brief_card(data: dict[str, Any], *, followups: str = "") -> dict[str, Any]:
     today = date.fromisoformat(str(data["today"]))
     workday = date.fromisoformat(str(data["workday"]))
     entries = [item for item in (data.get("today_entries") or []) if isinstance(item, dict)]
     pending = [item for item in (data.get("pending") or []) if isinstance(item, dict)]
-    progressed = [str(item) for item in (data.get("progressed") or []) if item]
-    unreplied = [str(item) for item in (data.get("unreplied") or []) if item]
-    long_term = [str(item) for item in (data.get("long_term") or []) if item]
+    progressed = [
+        plain_im_text(str(item)) for item in (data.get("progressed") or []) if item
+    ]
+    unreplied = [
+        plain_im_text(str(item)) for item in (data.get("unreplied") or []) if item
+    ]
+    long_term = [
+        plain_im_text(str(item)) for item in (data.get("long_term") or []) if item
+    ]
     week_notes = [str(item) for item in (data.get("week_notes") or []) if item]
     rows = work_priorities(data.get("priorities") or [], agenda=entries or data.get("today_agenda"))
+    work_lines = [
+        plain_im_text(line)
+        for line in (followups or str(data.get("followups") or "")).splitlines()
+        if line.strip()
+    ]
 
     elements: list[dict[str, Any]] = []
     yesterday: list[str] = [f"**一、昨天小结** · {cn_day(workday, paren=False)}"]
@@ -206,10 +217,24 @@ def brief_card(data: dict[str, Any]) -> dict[str, Any]:
         if agenda_btns:
             elements.append({"tag": "action", "actions": agenda_btns})
     if rows:
+        # scrub priority titles (may carry ![Image])
+        clean_rows = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            clean = dict(row)
+            clean["title"] = plain_im_text(str(row.get("title") or ""))
+            clean["reason"] = plain_im_text(str(row.get("reason") or ""))
+            clean_rows.append(clean)
         elements.append(_md("**优先处理** · 待办 / 回复"))
-        elements.append(_priority_table(rows))
-    elif entries:
+        elements.append(_priority_table(clean_rows))
+    elif entries and not work_lines:
         elements.append(_md("<font color='grey'>没有卡人的待办，先把今天的会开完。</font>", size="notation"))
+
+    if work_lines:
+        if elements:
+            elements.append(_hr())
+        elements.append(_md("**要跟的活**\n" + "\n".join(work_lines)))
 
     if pending:
         elements.append(_hr())
@@ -267,7 +292,7 @@ def day_work_card(
         body.extend(f"- {line}" for line in tasks)
     if work:
         body.append("**要跟的活**")
-        body.extend(work.splitlines())
+        body.extend(plain_im_text(line) for line in work.splitlines() if line.strip())
     elements: list[dict[str, Any]] = []
     if len(body) > 1:
         elements.append(_md("\n".join(body)))

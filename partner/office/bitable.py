@@ -366,6 +366,116 @@ def _record_title(fields: dict[str, Any]) -> str:
     return ""
 
 
+_DETAIL_FIELD_ORDER = (
+    "Bug描述",
+    "标题",
+    "状态",
+    "优先级",
+    "提交人",
+    "指派人",
+    "提交时间",
+    "提交版本",
+    "项目",
+    "测试步骤",
+    "备注",
+    "研发回复",
+)
+
+
+def _cell_display(val: Any) -> str:
+    if val is None or val == "":
+        return ""
+    if isinstance(val, list):
+        parts: list[str] = []
+        for item in val:
+            if isinstance(item, dict):
+                parts.append(
+                    str(
+                        item.get("name")
+                        or item.get("text")
+                        or item.get("url")
+                        or ""
+                    ).strip()
+                )
+            else:
+                parts.append(str(item).strip())
+        return "、".join(part for part in parts if part)
+    if isinstance(val, dict):
+        return str(
+            val.get("name") or val.get("text") or val.get("url") or ""
+        ).strip()
+    text = str(val).strip()
+    if text.endswith(".000+08:00"):
+        text = text[:10]
+    elif "T" in text and len(text) >= 10 and text[0:4].isdigit():
+        text = text[:10]
+    return text
+
+
+def reread_bitable_detail(*, record_id: str, table_label: str = "") -> str:
+    """摘要读不清时，按 record_id 再拉多维表一行。"""
+    rid = (record_id or "").strip()
+    if rid.startswith("fu:bitable:"):
+        rid = rid.split(":", 2)[-1]
+    if not rid:
+        return ""
+    cfg = load_config()
+    tables = [spec for spec in (cfg.get("scan_tables") or []) if isinstance(spec, dict)]
+    ordered: list[dict[str, Any]] = []
+    label = (table_label or "").strip()
+    for spec in tables:
+        name = str(spec.get("name") or spec.get("label") or "").strip()
+        if label and name == label:
+            ordered.insert(0, spec)
+        else:
+            ordered.append(spec)
+    for spec in ordered:
+        token = str(spec.get("base_token") or spec.get("app_token") or "").strip()
+        table = str(spec.get("table") or spec.get("table_id") or "").strip()
+        if not token or not table:
+            continue
+        payload = run_lark(
+            [
+                "base",
+                "+record-get",
+                "--base-token",
+                token,
+                "--table-id",
+                table,
+                "--record-id",
+                rid,
+                "--format",
+                "json",
+            ],
+            as_identity="user",
+        )
+        if payload.get("ok") is False:
+            continue
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        fields = data.get("fields") if isinstance(data.get("fields"), list) else []
+        rows = data.get("data") if isinstance(data.get("data"), list) else []
+        if not fields or not rows or not isinstance(rows[0], list):
+            continue
+        row = rows[0]
+        prefer: list[str] = []
+        rest: list[str] = []
+        for name, val in zip(fields, row):
+            shown = _cell_display(val)
+            if not shown:
+                continue
+            line = f"{name}：{shown}"
+            if str(name) in _DETAIL_FIELD_ORDER:
+                prefer.append(line)
+            else:
+                rest.append(line)
+        lines = prefer + [line for line in rest if line not in prefer]
+        if not lines:
+            continue
+        title = str(spec.get("name") or label or "多维表")
+        return f"【{title}·再读记录】\n" + "\n".join(lines[:12])
+    return ""
+
+
 def scan_bitable(*, today: date | None = None) -> str:
     from ..actions import send_text
 

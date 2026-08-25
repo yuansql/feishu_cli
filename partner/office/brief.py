@@ -347,10 +347,13 @@ def pending_brief_line(item: dict[str, Any]) -> str:
     where = str(item.get("chat_name") or "群")
     text = plain_im_text(str(item.get("text") or ""))
     tag = str(item.get("tag") or "").strip()
+    link = str(item.get("link") or "").strip()
     head = f"{who}（{where}）" if who else where
     line = f"{head}：{text}" if text else head
     if tag:
         line += f"（{tag}）"
+    if link and link not in line:
+        line += f" {link}"
     return line
 
 
@@ -929,7 +932,13 @@ def push_brief(*, force: bool = False, now: datetime | None = None) -> str:
         today_agenda=data.get("today_agenda") or [],
         long_term=data.get("long_term") or [],
     )
-    card_res = send_card(P2P_CHAT_ID, brief_card(data), as_identity="bot")
+    from .followup import followups_for_command
+
+    card_res = send_card(
+        P2P_CHAT_ID,
+        brief_card(data, followups=followups_for_command()),
+        as_identity="bot",
+    )
     if card_res == "已发送。":
         return "已推送今日简报。\n\n" + text
     spoken = polish_brief(text)

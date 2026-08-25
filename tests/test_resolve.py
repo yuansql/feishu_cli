@@ -469,6 +469,93 @@ class LedgerTests(unittest.TestCase):
         self.assertEqual(load_pending(), [])
         self.assertEqual(load_items()[0]["status"], "open")
 
+    def test_pending_detail_from_quoted_brief_line(self) -> None:
+        from partner.routing.resolved import pending_detail_text
+        from unittest.mock import patch
+
+        save_pending(
+            [
+                {
+                    "key": "om:om_yang1",
+                    "chat_id": "oc_app",
+                    "chat_name": "APP沟通群",
+                    "sender_name": "杨庆海",
+                    "text": "@吴梦晨  ![Image](img_v3_x)",
+                    "tag": "进行中·已追问未答完",
+                    "link": "https://example.com/open",
+                }
+            ]
+        )
+        with patch(
+            "partner.routing.resolved._refresh_pending_message",
+            return_value=(
+                "原消息含图片，邻近对话：\n"
+                "杨庆海：@吴梦晨 [图片] https://applink.feishu.cn/client/chat/open?openChatId=oc_app&position=1\n"
+                "杨庆海：看到版本号了吧 https://applink.feishu.cn/client/chat/open?openChatId=oc_app&position=2",
+                "https://example.com/open",
+            ),
+        ):
+            out = pending_detail_text(
+                "1. 杨庆海（APP沟通群）@吴梦晨 待确认事项（进行中·已追问未答完） 详细些"
+            )
+        self.assertIsNotNone(out)
+        assert out is not None
+        self.assertIn("杨庆海", out)
+        self.assertIn("example.com", out)
+        self.assertIn("applink.feishu.cn", out)
+        self.assertIn("邻近对话", out)
+
+    def test_thread_line_keeps_app_link(self) -> None:
+        from partner.routing.resolved import _format_thread_line
+
+        line = _format_thread_line(
+            {
+                "sender": {"name": "杨庆海"},
+                "content": "看下 https://feishu.cn/docx/abc",
+                "message_app_link": "https://applink.feishu.cn/client/chat/open?openChatId=oc_x&position=9",
+            }
+        )
+        self.assertIn("杨庆海：", line)
+        self.assertIn("https://feishu.cn/docx/abc", line)
+        self.assertIn("applink.feishu.cn", line)
+
+    def test_followup_bitable_detail_rereads_record(self) -> None:
+        from partner.office.followup import save_items
+        from partner.routing.resolved import pending_detail_text
+        from unittest.mock import patch
+
+        os.environ["FEISHU_PARTNER_FOLLOWUPS"] = str(
+            Path(self.tmp.name) / "followups.json"
+        )
+        self.addCleanup(os.environ.pop, "FEISHU_PARTNER_FOLLOWUPS", None)
+        save_items(
+            [
+                {
+                    "id": "fu:bitable:rec_thin",
+                    "kind": "bitable_at",
+                    "chat_name": "AR101缺陷",
+                    "message_id": "rec_thin",
+                    "asker_name": "有人",
+                    "assignee_name": "有人",
+                    "text": "【AR101缺陷】有人指派你了（2026-08-21）",
+                    "status": "open",
+                }
+            ]
+        )
+        with patch(
+            "partner.office.bitable.reread_bitable_detail",
+            return_value="【AR101缺陷·再读记录】\nBug描述：语音退出\n提交人：谭成锟",
+        ) as reread:
+            out = pending_detail_text(
+                "有人（AR101缺陷）【AR101缺陷】有人指派你了（2026-08-21） 详细点"
+            )
+        reread.assert_called_once()
+        self.assertIsNotNone(out)
+        assert out is not None
+        self.assertIn("再读记录", out)
+        self.assertIn("谭成锟", out)
+        self.assertNotIn("没接上", out)
+
 
 class CardTests(unittest.TestCase):
     def test_card_button_carries_item_key(self) -> None:

@@ -311,6 +311,320 @@ def match_pending(hint: str, items: list[dict[str, Any]]) -> list[dict[str, Any]
     return text_hits or name_hits
 
 
+def _wants_pending_detail(raw: str) -> bool:
+    text = raw or ""
+    if any(mark in text for mark in ("详细", "展开", "具体", "谁提的", "谁派的", "谁提交")):
+        return True
+    # 回引简报「1. 谁（群）…」整行，即使没写详细也当看详情
+    if re.match(r"^\s*\d+\s*[\.、．]", text) and (
+        "进行中" in text or "未回复" in text or "待确认" in text or "（" in text
+    ):
+        return True
+    return False
+
+
+def _pending_detail_hint(raw: str) -> str:
+    q = raw or ""
+    for noise in (
+        "详细些",
+        "详细点",
+        "再详细点",
+        "再详细",
+        "详细一下",
+        "详细",
+        "展开说说",
+        "展开一下",
+        "展开",
+        "具体些",
+        "具体点",
+        "具体一下",
+        "具体",
+        "不知道你在说什么",
+        "听不懂",
+        "什么意思",
+        "再说清楚",
+        "这个是谁提的",
+        "是谁提的",
+        "谁提的",
+        "谁派的",
+        "谁提交的",
+        "谁提交",
+    ):
+        q = q.replace(noise, " ")
+    q = re.sub(r"^\s*\d+\s*[\.、．]\s*", "", q)
+    q = re.sub(r"[（(](?:进行中|未完成|未回复)[^）)]*[）)]", " ", q)
+    return re.sub(r"\s+", " ", q).strip(" ：:，,。.!！?")
+
+
+def _pending_message_id(item: dict[str, Any]) -> str:
+    mid = str(item.get("message_id") or "").strip()
+    if mid.startswith("om_"):
+        return mid
+    key = str(item.get("key") or "").strip()
+    if key.startswith("om:"):
+        return key[3:]
+    return ""
+
+
+def _thin_pending_body(body: str) -> bool:
+    text = (body or "").strip()
+    if not text:
+        return True
+    return bool(re.fullmatch(r"(@\S+\s*)*(!\[[^\]]*\]\([^)]*\)\s*)+", text))
+
+
+def _display_msg_text(raw: str) -> str:
+    from ..compose.formatters import plain_im_text
+
+    text = plain_im_text(raw or "")
+
+    def _image_repl(match: re.Match[str]) -> str:
+        url = (match.group(1) or "").strip()
+        if url.startswith("http://") or url.startswith("https://"):
+            return f"[图片] {url}"
+        return "[图片]"
+
+    text = re.sub(r"!\[[^\]]*\]\(([^)]*)\)", _image_repl, text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _msg_plain(msg: dict[str, Any]) -> str:
+    content = msg.get("content")
+    if isinstance(content, dict):
+        raw = content.get("text") or ""
+    elif isinstance(content, str):
+        raw = content
+    else:
+        raw = msg.get("text") or ""
+    return _display_msg_text(str(raw or ""))
+
+
+def _msg_who(msg: dict[str, Any]) -> str:
+    sender = msg.get("sender")
+    if isinstance(sender, dict):
+        return str(sender.get("name") or sender.get("sender_name") or "").strip()
+    return str(msg.get("sender_name") or "").strip()
+
+
+def _msg_app_link(msg: dict[str, Any]) -> str:
+    return str(msg.get("message_app_link") or msg.get("app_link") or "").strip()
+
+
+def _format_thread_line(msg: dict[str, Any]) -> str:
+    """谁：正文；能拿到的链接都带上（正文 URL + message_app_link）。"""
+    who = _msg_who(msg) or "对方"
+    text = _msg_plain(msg)
+    app_link = _msg_app_link(msg)
+    if not text and not app_link:
+        return ""
+    line = f"{who}：{text or '[无文字]'}"
+    # 正文里已有的 http(s) 不再重复；跳转链单独挂
+    if app_link and app_link not in line:
+        line += f" {app_link}"
+    return line
+
+
+def _is_image_only_text(body: str) -> bool:
+    text = (body or "").strip()
+    if not text:
+        return True
+    if re.fullmatch(r"(@\S+\s*)*(!\[[^\]]*\]\([^)]*\)\s*)+", text):
+        return True
+    return bool(re.fullmatch(r"(@\S+\s*)*(\[图片\](?:\s+https?://\S+)?\s*)+", text))
+
+
+def _refresh_pending_message(item: dict[str, Any]) -> tuple[str, str]:
+    """mget 原消息；摘要只剩图时再拉邻近对话。返回 (正文, 原消息跳转链)。"""
+    from ..compose.formatters import plain_im_text
+    from ..core.lark import run_lark
+
+    stored = plain_im_text(str(item.get("text") or ""))
+    mid = _pending_message_id(item)
+    chat_id = str(item.get("chat_id") or "").strip()
+    link = str(item.get("link") or "").strip()
+    refreshed = stored
+    origin: dict[str, Any] | None = None
+    if mid:
+        payload = run_lark(
+            ["im", "+messages-mget", "--message-ids", mid, "--no-reactions"],
+            as_identity="user",
+        )
+        if payload.get("ok") is not False:
+            data = payload.get("data")
+            msgs = data.get("messages") if isinstance(data, dict) else None
+            if isinstance(msgs, list) and msgs and isinstance(msgs[0], dict):
+                origin = msgs[0]
+                got = _msg_plain(origin)
+                if got:
+                    refreshed = got
+                app = _msg_app_link(origin)
+                if app:
+                    link = app
+    thread = _nearby_thread_lines(chat_id, mid) if chat_id else []
+    thin = _is_image_only_text(refreshed) or _thin_pending_body(stored)
+    if thin and thread:
+        return "原消息含图片，邻近对话：\n" + "\n".join(thread), link
+    if thin:
+        return "（原消息主要是图片，邻近对话也没拉到。）", link
+    if thread:
+        return refreshed + "\n\n邻近对话：\n" + "\n".join(thread), link
+    return refreshed, link
+
+
+def _nearby_thread_lines(chat_id: str, message_id: str, *, after: int = 6) -> list[str]:
+    """原消息 + 之后几条（时间正序）。读不到摘要时靠邻近对话补语境。"""
+    from ..core.lark import run_lark
+
+    if not chat_id:
+        return []
+    payload = run_lark(
+        [
+            "im",
+            "+chat-messages-list",
+            "--chat-id",
+            chat_id,
+            "--order",
+            "desc",
+            "--page-size",
+            "30",
+            "--no-reactions",
+        ],
+        as_identity="user",
+    )
+    if payload.get("ok") is False:
+        return []
+    hits = payload.get("data")
+    if isinstance(hits, dict):
+        hits = hits.get("messages") or hits.get("items") or []
+    if not isinstance(hits, list):
+        return []
+    rows = [item for item in hits if isinstance(item, dict)]
+    mid = (message_id or "").strip()
+    idx = None
+    if mid:
+        for i, msg in enumerate(rows):
+            if str(msg.get("message_id") or "") == mid:
+                idx = i
+                break
+    if idx is None:
+        return []
+    # rows 为 desc：取自身 + 更新的 after 条，再正序
+    window = list(reversed(rows[max(0, idx - after) : idx + 1]))
+    lines: list[str] = []
+    for msg in window:
+        line = _format_thread_line(msg)
+        if line:
+            lines.append(line)
+    return lines[: after + 1]
+
+
+def _format_pending_detail(item: dict[str, Any]) -> str:
+    who = str(item.get("sender_name") or "").strip() or "对方"
+    where = str(item.get("chat_name") or "群").strip()
+    tag = str(item.get("tag") or "").strip()
+    kind = str(item.get("kind") or "")
+    key = str(item.get("key") or "")
+    if kind == "bitable_at" or key.startswith("fu:bitable:"):
+        from ..office.bitable import reread_bitable_detail
+
+        body = reread_bitable_detail(
+            record_id=str(item.get("message_id") or key),
+            table_label=where,
+        )
+        if not body:
+            body = str(item.get("text") or "（多维表再读失败，摘要不够。）")
+        lines = [f"【跟进详情】{who} · {where}", body]
+        if tag:
+            lines.append(f"账本状态：{tag}")
+        lines.append("处理完回「已处理」。")
+        return "\n".join(lines)
+    body, link = _refresh_pending_message(item)
+    if not link:
+        link = str(item.get("link") or "").strip()
+    lines = [f"【待回复详情】{who} · {where}", f"内容：{body}"]
+    if tag:
+        lines.append(f"状态：{tag}")
+    if link:
+        lines.append(f"跳转：{link}")
+    lines.append("处理完回「已处理」或点卡片「已处理」。")
+    return "\n".join(lines)
+
+
+def _detail_candidate_pool() -> list[dict[str, Any]]:
+    """简报 pending + 跟进账，统一给「详细些」对号。"""
+    ensure_pending_snapshot()
+    pool: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in load_pending():
+        key = str(item.get("key") or "")
+        if not key or is_resolved(key) or key in seen:
+            continue
+        seen.add(key)
+        pool.append(item)
+    from ..office.followup import load_items
+
+    for item in load_items():
+        if str(item.get("status") or "") not in {"open", "snooze"}:
+            continue
+        key = str(item.get("id") or "")
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        pool.append(
+            {
+                "key": key,
+                "kind": str(item.get("kind") or ""),
+                "chat_id": str(item.get("chat_id") or ""),
+                "chat_name": str(item.get("chat_name") or ""),
+                "sender_name": str(
+                    item.get("asker_name") or item.get("assignee_name") or ""
+                ),
+                "text": str(item.get("text") or ""),
+                "tag": "跟进",
+                "message_id": str(item.get("message_id") or ""),
+                "link": "",
+            }
+        )
+    return pool
+
+
+def pending_detail_text(raw: str) -> str | None:
+    """回引简报待回复/今日待跟进 + 详细些 → 展开账本；多维表摘要不够就再读记录。"""
+    if not _wants_pending_detail(raw):
+        return None
+    items = _detail_candidate_pool()
+    if not items:
+        return None
+    idx_match = re.match(r"^\s*(\d+)\s*[\.、．]", raw or "")
+    idx = int(idx_match.group(1)) if idx_match else None
+    if idx is None:
+        from ..core.session import pick_index
+
+        idx = pick_index(raw)
+    hint = _pending_detail_hint(raw)
+    hits = match_pending(hint, items) if hint else []
+    chosen: dict[str, Any] | None = None
+    if idx is not None and 1 <= idx <= len(items):
+        candidate = items[idx - 1]
+        hit_keys = {str(h.get("key") or "") for h in hits}
+        if not hits or str(candidate.get("key") or "") in hit_keys:
+            chosen = candidate
+        elif len(hits) == 1:
+            chosen = hits[0]
+    elif len(hits) == 1:
+        chosen = hits[0]
+    elif not hint and len(items) == 1:
+        chosen = items[0]
+    elif len(hits) > 1:
+        lines = ["对上好几条，回序号或点名哪一条："]
+        for i, item in enumerate(hits[:5], 1):
+            lines.append(f"{i}. {pending_line(item)}")
+        return "\n".join(lines)
+    if chosen is None:
+        return None
+    return _format_pending_detail(chosen)
+
+
 def pending_line(item: dict[str, Any]) -> str:
     where = str(item.get("chat_name") or "群")
     text = str(item.get("text") or "")
