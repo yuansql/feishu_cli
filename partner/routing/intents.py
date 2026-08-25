@@ -330,6 +330,8 @@ def looks_like_weekly_talk(raw: str) -> bool:
     """Natural-language weekly, including rewrite / continue — not a search query."""
     if looks_like_write_weekly(raw):
         return False
+    if looks_like_weekly_tasks(raw):
+        return False
     if looks_like_week_activity(raw):
         return True
     if raw in _WEEKLY_EXACT or raw in _WEEKLY_CONTINUE:
@@ -371,7 +373,7 @@ def looks_like_bare_search(query: str) -> bool:
         return False
     if looks_like_chat_find(q) or looks_like_resolve(q) or looks_like_tasks(q):
         return False
-    if q in _DIGEST_EXACT or q in _WEEKLY_TASKS_EXACT:
+    if q in _DIGEST_EXACT or q in _WEEKLY_TASKS_EXACT or looks_like_weekly_tasks(q):
         return False
     if looks_like_person_talk(q) or looks_like_task_done(q) or looks_like_plan(q):
         return False
@@ -696,17 +698,22 @@ def looks_like_task_cancel(raw: str) -> bool:
 
 
 def looks_like_weekly_tasks(raw: str) -> bool:
-    """本周任务清单（可带「输出到消息」等后缀），禁止掉进 unknown→Hermes 乱搜文档。"""
+    """本周任务清单。允许「本周的全部任务」中间插字，禁止当成周报/unknown。"""
     text = _folded(raw)
     if text in _WEEKLY_TASKS_EXACT:
         return True
-    if "本周任务" in text or "这周任务" in text:
+    if "周报" in text or looks_like_week_activity(text):
+        return False
+    if re.match(r"^(?:任务模式|深度任务|开始任务)\b", text):
+        return False
+    if "本周任务" in text or "这周任务" in text or "这星期任务" in text:
         return True
     if "任务清单" in text and any(
-        v in text for v in ("生成", "输出", "发我", "私聊", "本周", "这周")
+        v in text for v in ("生成", "输出", "发我", "私聊", "本周", "这周", "这星期")
     ):
         return True
-    return False
+    # 本周/这周 + 任务，中间可插「的全部/所有」等，避免要求连续「本周任务」。
+    return bool(re.search(r"(?:本周|这周|这星期).{0,8}任务", text))
 
 
 _DOC_EDIT_CUES = (

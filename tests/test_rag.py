@@ -9,8 +9,10 @@ from partner.office.rag import (
     append_chunks,
     chunk_markdown,
     expand_query,
+    hashed_vector,
     index_stats_text,
     rag_answer,
+    replace_chunks,
     retrieve,
 )
 
@@ -67,6 +69,28 @@ class RagTests(unittest.TestCase):
 
     def test_stats_empty(self) -> None:
         self.assertIn("0 个切片", index_stats_text())
+
+    def test_hashed_vector_is_unit_length(self) -> None:
+        vec = hashed_vector("A6 预发验证")
+        self.assertEqual(len(vec), 64)
+        self.assertAlmostEqual(sum(x * x for x in vec), 1.0, places=5)
+
+    def test_replace_chunks_drops_old_text(self) -> None:
+        append_chunks(
+            doc_id="doc-sync",
+            title="方案",
+            url="https://example.com/sync",
+            markdown="旧稿只谈预发验证。",
+        )
+        replace_chunks(
+            doc_id="doc-sync",
+            title="方案",
+            url="https://example.com/sync",
+            markdown="新稿只谈回滚策略。",
+        )
+        hits = retrieve("回滚", top_k=3)
+        self.assertTrue(any("回滚" in hit.text for hit in hits))
+        self.assertFalse(any("预发" in hit.text for hit in hits))
 
 
 if __name__ == "__main__":

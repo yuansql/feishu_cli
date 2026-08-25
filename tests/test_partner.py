@@ -20,9 +20,10 @@ class PartnerLoopTests(unittest.TestCase):
         def fake_rewrite(_user: str, _facts: str, **_kwargs: object) -> str:
             return replies.pop(0)
 
-        with patch("partner.actions.rewrite_partner", side_effect=fake_rewrite):
-            with patch("partner.actions._facts_for", return_value="日程：A6 提测"):
-                text = partner_reply("今天咋样", "先看一眼", Intent(action="unknown"))
+        with patch("partner.actions.hermes_available", return_value=False):
+            with patch("partner.actions.rewrite_partner", side_effect=fake_rewrite):
+                with patch("partner.actions._facts_for", return_value="日程：A6 提测"):
+                    text = partner_reply("今天咋样", "先看一眼", Intent(action="unknown"))
         self.assertEqual(text, "今天先把 A6 提测收掉。")
         self.assertFalse(replies)
 
@@ -82,8 +83,9 @@ class PartnerLoopTests(unittest.TestCase):
             "protocol (_ssl.c:1016)"
         )
         facts = "【张三最近怎么说】\n- 张三：方案可以，明天提测"
-        with patch("partner.actions.rewrite_partner", return_value=ssl_err):
-            text = partner_reply("张三的回复如何？", facts, Intent(action="person", query="张三"))
+        with patch("partner.actions.hermes_available", return_value=False):
+            with patch("partner.actions.rewrite_partner", return_value=ssl_err):
+                text = partner_reply("张三的回复如何？", facts, Intent(action="person", query="张三"))
         self.assertIn("方案可以", text)
         self.assertNotIn("SSL", text)
         self.assertNotIn("_ssl.c", text)

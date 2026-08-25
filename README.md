@@ -65,6 +65,8 @@ lark-cli auth login --scope "calendar:calendar.event:read search:docs:read"
 | `feishu versions` | 配置快照 publish / list / diff / rollback |
 | `feishu sandbox` | 查看本地沙箱路径与允许命令 |
 | `feishu workflow` | 列出本地 Workflow 及触发词 |
+| `feishu rag` | 本地知识索引：`stats` / `index 关键词` / `query` / `sync` |
+| `feishu runs` | 查看 SQLite 运行记录与租约 |
 | `feishu webhook` | Webhook 触发后台任务（HMAC，默认 127.0.0.1:8766） |
 | `feishu mcp-http` | 可选 MCP HTTP 网关（外部 Agent 扩展） |
 | `feishu aily` | 对标 Aily 能力差距与本地开发路线图 |

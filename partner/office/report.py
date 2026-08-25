@@ -1,10 +1,13 @@
-"""Local HTML report artifacts (sandbox-safe). Optional Feishu doc upload via confirm path."""
+"""Local HTML / SVG / WAV report artifacts (sandbox-safe). Optional Feishu upload via confirm."""
 
 from __future__ import annotations
 
 import html
+import math
 import os
 import re
+import struct
+import wave
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -111,3 +114,100 @@ def report_from_goal(goal: str, materials: str = "") -> str:
 def report_cli(title_words: list[str] | None = None, body: str = "") -> str:
     title = " ".join(title_words or []).strip() or "工作报告"
     return report_from_goal(title, materials=body)
+
+
+def _parse_series(raw: str) -> list[tuple[str, float]]:
+    """Parse 'A:3,B:5' or 'A=3 B=5' into label/value pairs."""
+    blob = (raw or "").strip()
+    if not blob:
+        return []
+    parts = re.split(r"[,，;\s]+", blob)
+    out: list[tuple[str, float]] = []
+    for part in parts:
+        piece = part.strip()
+        if not piece:
+            continue
+        if ":" in piece:
+            label, value = piece.split(":", 1)
+        elif "=" in piece:
+            label, value = piece.split("=", 1)
+        else:
+            continue
+        try:
+            out.append((label.strip()[:24] or "项", float(value.strip())))
+        except ValueError:
+            continue
+    return out[:12]
+
+
+def write_chart_svg(*, title: str, series: str) -> Path:
+    """Write a simple bar chart SVG under reports/."""
+    rows = _parse_series(series)
+    if not rows:
+        rows = [("示例", 1.0), ("待填", 2.0)]
+    reports_dir().mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(CN_TZ).strftime("%Y%m%d-%H%M%S")
+    path = reports_dir() / f"{stamp}-{_slug(title or 'chart')}.svg"
+    max_v = max(v for _l, v in rows) or 1.0
+    width = 480
+    height = 40 + 28 * len(rows)
+    bars: list[str] = []
+    for index, (label, value) in enumerate(rows):
+        y = 28 + index * 28
+        bar_w = max(2, int(320 * (value / max_v)))
+        safe_label = html.escape(label)
+        bars.append(
+            f'<text x="8" y="{y + 12}" font-size="12" fill="#1f2329">{safe_label}</text>'
+            f'<rect x="120" y="{y}" width="{bar_w}" height="16" fill="#3370ff" rx="2"/>'
+            f'<text x="{128 + bar_w}" y="{y + 12}" font-size="11" fill="#646a73">{value:g}</text>'
+        )
+    safe_title = html.escape((title or "图表").strip() or "图表")
+    svg = (
+        f'<?xml version="1.0" encoding="UTF-8"?>\n'
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
+        f'viewBox="0 0 {width} {height}">\n'
+        f'<rect width="100%" height="100%" fill="#fff"/>\n'
+        f'<text x="8" y="18" font-size="14" font-weight="600" fill="#1f2329">{safe_title}</text>\n'
+        f'{"".join(bars)}\n'
+        f"</svg>\n"
+    )
+    path.write_text(svg, encoding="utf-8")
+    return path
+
+
+def write_tone_wav(*, title: str, seconds: float = 0.4, freq: float = 880.0) -> Path:
+    """Write a short mono WAV tone (stdlib only). Not TTS."""
+    reports_dir().mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(CN_TZ).strftime("%Y%m%d-%H%M%S")
+    path = reports_dir() / f"{stamp}-{_slug(title or 'tone')}.wav"
+    rate = 22050
+    duration = max(0.1, min(float(seconds or 0.4), 3.0))
+    n = int(rate * duration)
+    hz = max(110.0, min(float(freq or 880.0), 2000.0))
+    with wave.open(str(path), "w") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(rate)
+        frames = bytearray()
+        for i in range(n):
+            sample = int(12000 * math.sin(2 * math.pi * hz * (i / rate)))
+            frames.extend(struct.pack("<h", sample))
+        handle.writeframes(frames)
+    return path
+
+
+def chart_from_goal(goal: str, series: str = "") -> str:
+    path = write_chart_svg(title=goal or "图表", series=series)
+    return f"已生成本地 SVG 图表：\n{path}\n\n浏览器打开预览。上传飞书仍走确认闸。"
+
+
+def audio_from_goal(goal: str, seconds: str = "0.4") -> str:
+    try:
+        secs = float(seconds or "0.4")
+    except ValueError:
+        secs = 0.4
+    path = write_tone_wav(title=goal or "提示音", seconds=secs)
+    return (
+        f"已生成本地 WAV 提示音：\n{path}\n\n"
+        "这是短提示音，不是语音合成。上传飞书仍走确认闸。"
+    )

@@ -26,6 +26,7 @@ class AilyAlignmentTests(unittest.TestCase):
 
     def test_weights_total_100_and_target_crosses_90(self) -> None:
         self.assertEqual(sum(item.weight for item in CAPABILITIES), 100)
+        self.assertGreaterEqual(alignment_score(), 77.0)
         self.assertLess(alignment_score(), 90)
         self.assertGreaterEqual(alignment_target_score(), 90)
 

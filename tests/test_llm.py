@@ -128,15 +128,14 @@ class HermesArgvTests(unittest.TestCase):
 
     def test_partner_only_in_p2p(self) -> None:
         self.assertTrue(should_partner("p2p", "unknown"))
-        # Fast office facts stay off Hermes so serve is not single-thread blocked.
-        self.assertFalse(should_partner("p2p", "inbox"))
-        self.assertFalse(should_partner("p2p", "chats"))
-        self.assertFalse(should_partner("p2p", "chat_history"))
+        # D1: material lists go through Hermes; fast office cards stay off.
+        self.assertTrue(should_partner("p2p", "inbox"))
+        self.assertTrue(should_partner("p2p", "chats"))
+        self.assertTrue(should_partner("p2p", "chat_history"))
         self.assertFalse(should_partner("p2p", "send"))
         self.assertFalse(should_partner("p2p", "today"))
         self.assertFalse(should_partner("p2p", "tomorrow"))
         self.assertFalse(should_partner("p2p", "brief"))
-        self.assertFalse(should_partner("p2p", "write_doc"))
         self.assertFalse(should_partner("group", "unknown"))
         self.assertFalse(should_partner("group", "weekly"))
 
@@ -273,6 +272,13 @@ class HermesArgvTests(unittest.TestCase):
         self.assertNotIn("这样应该可以", block)
         self.assertTrue(block.startswith("吴梦晨 ·"))
         self.assertIn("A8设备邮寄回来", block)
+
+    def test_classify_prompt_lists_weekly_tasks(self) -> None:
+        from partner.compose.llm import _CLASSIFY_PROMPT
+
+        self.assertIn("weekly_tasks", _CLASSIFY_PROMPT)
+        self.assertIn("本周的全部任务", _CLASSIFY_PROMPT)
+        self.assertIn("不要用 weekly 或 tasks", _CLASSIFY_PROMPT)
 
 
 if __name__ == "__main__":

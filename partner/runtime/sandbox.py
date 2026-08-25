@@ -6,12 +6,18 @@ import os
 import shlex
 import shutil
 import subprocess
+import threading
 from pathlib import Path
 
 MAX_OUTPUT = 8000
 MAX_FILE = 256 * 1024
-TIMEOUT_S = 20
-ALLOWED_CMDS = frozenset({"python3", "python", "ls", "cat", "head", "wc", "uname"})
+# ponytail: longer than 20s for real scripts; still not multi-hour cloud VM
+DEFAULT_TIMEOUT_S = 120
+DEFAULT_MAX_CONCURRENT = 2
+ALLOWED_CMDS = frozenset({"python3", "python", "ls", "cat", "head", "wc", "uname", "mkdir"})
+
+_active_lock = threading.Lock()
+_active_runs = 0
 
 
 def sandbox_root() -> Path:
@@ -19,6 +25,26 @@ def sandbox_root() -> Path:
     if override:
         return Path(override).expanduser()
     return Path.home() / ".feishu-partner" / "sandbox"
+
+
+def timeout_sec() -> int:
+    raw = os.environ.get("FEISHU_PARTNER_SANDBOX_TIMEOUT", "").strip()
+    if not raw:
+        return DEFAULT_TIMEOUT_S
+    try:
+        return max(5, min(int(raw), 600))
+    except ValueError:
+        return DEFAULT_TIMEOUT_S
+
+
+def max_concurrent() -> int:
+    raw = os.environ.get("FEISHU_PARTNER_SANDBOX_MAX", "").strip()
+    if not raw:
+        return DEFAULT_MAX_CONCURRENT
+    try:
+        return max(1, min(int(raw), 8))
+    except ValueError:
+        return DEFAULT_MAX_CONCURRENT
 
 
 def resolve_path(rel: str) -> Path:
@@ -44,6 +70,21 @@ def _safe_args(cmd: str, args: list[str]) -> list[str]:
         for arg in args[1:]:
             extra.append(_confine_arg(arg))
         return [str(script), *extra]
+    if cmd == "mkdir":
+        if not args:
+            raise ValueError("mkdir 需要沙箱内相对路径")
+        out: list[str] = []
+        for arg in args:
+            if arg in {"-p", "--parents"}:
+                out.append("-p")
+                continue
+            if arg.startswith("-"):
+                raise ValueError(f"mkdir 不允许该参数：{arg}")
+            resolve_path(arg)  # confine
+            out.append(arg)
+        if "-p" not in out:
+            out.insert(0, "-p")
+        return out
     return [_confine_arg(arg) for arg in args]
 
 
@@ -94,6 +135,7 @@ def sandbox_write(rel: str, content: str) -> str:
 
 
 def sandbox_run(command: str) -> str:
+    global _active_runs
     parts = shlex.split((command or "").strip())
     if not parts:
         return "请给出命令，例如：python3 hello.py"
@@ -112,6 +154,12 @@ def sandbox_run(command: str) -> str:
         "HOME": str(sandbox_root()),
         "LANG": os.environ.get("LANG", "en_US.UTF-8"),
     }
+    limit = max_concurrent()
+    with _active_lock:
+        if _active_runs >= limit:
+            return f"沙箱进程配额已满（并发 ≤{limit}）。稍后再试或调 FEISHU_PARTNER_SANDBOX_MAX。"
+        _active_runs += 1
+    timeout = timeout_sec()
     try:
         proc = subprocess.run(
             argv,
@@ -119,13 +167,16 @@ def sandbox_run(command: str) -> str:
             env=env,
             capture_output=True,
             text=True,
-            timeout=TIMEOUT_S,
+            timeout=timeout,
             check=False,
         )
     except subprocess.TimeoutExpired:
-        return f"超时（>{TIMEOUT_S}s），已终止。"
+        return f"超时（>{timeout}s），已终止。"
     except OSError as exc:
         return f"无法执行：{exc}"
+    finally:
+        with _active_lock:
+            _active_runs = max(0, _active_runs - 1)
     out = (proc.stdout or "") + (("\n" + proc.stderr) if proc.stderr else "")
     out = out.strip()
     if len(out) > MAX_OUTPUT:
@@ -136,8 +187,12 @@ def sandbox_run(command: str) -> str:
 def sandbox_status_text() -> str:
     root = sandbox_root()
     root.mkdir(parents=True, exist_ok=True)
+    with _active_lock:
+        active = _active_runs
     return (
         f"本地沙箱：{root}\n"
         f"允许命令：{', '.join(sorted(ALLOWED_CMDS))}\n"
-        f"边界：不能访问沙箱外路径；无任意 shell；非云 VM。"
+        f"超时：{timeout_sec()}s（FEISHU_PARTNER_SANDBOX_TIMEOUT）\n"
+        f"进程配额：并发 ≤{max_concurrent()}，当前 {active}\n"
+        f"边界：不能访问沙箱外路径；无任意 shell；无 Playwright/浏览器；非云 VM。"
     )

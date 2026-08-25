@@ -134,12 +134,18 @@ class ParseIntentTests(unittest.TestCase):
             "本周任务, 输出到消息中",
             "本周任务，输出到消息中",
             "生成本周任务",
+            "本周的全部任务",
+            "这周所有任务",
+            "这周的全部任务",
         ):
             self.assertEqual(parse_intent(text).action, "weekly_tasks", text)
         self.assertNotEqual(
             parse_intent("本周任务, 输出到消息中").action,
             "unknown",
         )
+        self.assertEqual(parse_intent("本周计划").action, "weekly")
+        self.assertEqual(parse_intent("本周的周报").action, "weekly")
+        self.assertEqual(parse_intent("任务模式 本周风险").action, "plan")
 
     def test_who_is_not_person_dump(self) -> None:
         self.assertEqual(parse_intent("邱俊立是谁").action, "who")
@@ -216,6 +222,9 @@ class ParseIntentTests(unittest.TestCase):
         self.assertEqual(plan.action, "plan")
         self.assertEqual(plan.query, "A6 上线前检查")
         self.assertEqual(parse_classified('{"action":"tasks"}').action, "tasks")
+        self.assertEqual(
+            parse_classified('{"action":"weekly_tasks"}').action, "weekly_tasks"
+        )
         self.assertIsNone(parse_classified('{"action":"send","query":"hi"}'))
         self.assertIsNone(parse_classified('{"action":"plan"}'))
         self.assertIsNone(parse_classified("不是 json"))

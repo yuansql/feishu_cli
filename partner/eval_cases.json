@@ -19,6 +19,7 @@
     {"id": "write-weekly", "text": "写个周报", "expect_action": "write_weekly"},
     {"id": "weekly-tasks-with-suffix", "text": "本周任务, 输出到消息中", "expect_action": "weekly_tasks"},
     {"id": "weekly-tasks-exact", "text": "本周任务", "expect_action": "weekly_tasks"},
+    {"id": "weekly-tasks-all", "text": "本周的全部任务", "expect_action": "weekly_tasks"},
     {"id": "doc-edit-append", "text": "https://it82yw7fgr.feishu.cn/docx/JQmIdVhCmoQLbRxHMnbcO7sMnkc\n\n本周的一些活需要添加到第二个月中", "expect_action": "write_doc"},
     {"id": "who-is", "text": "邱俊立是谁", "expect_action": "who"},
     {"id": "who-self", "text": "吴梦晨是谁?", "expect_action": "identity"}

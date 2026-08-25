@@ -5,7 +5,7 @@
 
 ## 结论
 
-- **当前本地实现：约 70.0/100**（随 P1+ 开发更新，运行 `feishu aily` 查看）
+- **当前本地实现：约 77.4/100**（随 P1+ 开发更新，运行 `feishu aily` 查看）
 - **目标：≥90/100（误差 ≤10%，且单项能力不低于官方对标行为）**
 - **路径：全部在本仓库单独开发**，不依赖 Aily 运行时
 
@@ -66,11 +66,11 @@ MCP HTTP（`feishu mcp-http`）仅作**可选对外扩展**（Cursor/Hermes 等�
 |------|------|----------|
 | P1 | SQLite `run_store` + **`tool_registry`** + **`webhook`** | ~55 |
 | P2 | **本地 Multi-Agent**（researcher/executor/writer · 已落地） | ~58 |
-| P3 | **Workflow DSL + 混合模式路由**（已落地） | ~62 |
-| P4 | **轻量 RAG**（切片/术语/召回 · 已落地） | ~68 |
+| P3 | **Workflow DSL + 混合模式路由**（repeat/until + http · 已落地） | ~75 |
+| P4 | **轻量 RAG**（切片/术语/hashed 向量 + `rag sync` · 已落地） | ~75 |
 | P5 | **本地沙箱**（目录隔离 + 命令白名单 · 已落地） | ~72 |
-| P6 | **`feishu eval` + `feishu versions`**（已落地） | ~70 |
-| P7 | **Agents.md / 经验档案 + Workflow when/unless**（已落地） | ~70 |
+| P6 | **`feishu eval` + `feishu versions` + `feishu runs`**（已落地） | ~75 |
+| P7 | **Agents.md / 经验档案 + Workflow when/unless**（已落地） | ~75 |
 
 企业计费、租户管理员 UI、应用市场审核标 **N/A**，不参与单用户 CLI 计分。
 

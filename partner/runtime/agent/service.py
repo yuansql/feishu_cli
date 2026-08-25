@@ -40,6 +40,12 @@ def save_task(task: dict[str, Any]) -> None:
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(task, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp.replace(path)
+    try:
+        from ...core.run_store import upsert_run
+
+        upsert_run(task)
+    except Exception:
+        emit_trace(str(task.get("id") or ""), "run_store.upsert_failed")
 
 
 def load_task(task_id: str) -> dict[str, Any] | None:
@@ -242,6 +248,9 @@ def cancel_agent_task(chat_id: str, *, task_id: str = "") -> str:
 
 
 def claim_queued_agent_task() -> dict[str, Any] | None:
+    from ...core.run_store import acquire_lease, apply_recovered_leases
+
+    apply_recovered_leases(load_task, save_task)
     if not tasks_dir().is_dir():
         return None
     rows: list[dict[str, Any]] = []
@@ -263,4 +272,9 @@ def claim_queued_agent_task() -> dict[str, Any] | None:
     task = rows[0]
     task["status"] = "running"
     save_task(task)
+    tid = str(task.get("id") or "")
+    if tid and not acquire_lease(tid, f"agent:{os.getpid()}"):
+        task["status"] = "queued"
+        save_task(task)
+        return None
     return task

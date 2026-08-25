@@ -4,7 +4,13 @@ import os
 import unittest
 from unittest.mock import patch
 
-from partner.runtime.multi_agent import MultiAgentResult, RoleBrief, coordinate, enrich_facts_for_plan
+from partner.runtime.multi_agent import (
+    MultiAgentResult,
+    RoleBrief,
+    coordinate,
+    enrich_facts_for_plan,
+    select_roles,
+)
 
 
 class MultiAgentTests(unittest.TestCase):
@@ -41,6 +47,17 @@ class MultiAgentTests(unittest.TestCase):
         with patch("partner.runtime.multi_agent._model_coordinate", return_value=payload):
             result = coordinate("测试目标", "some facts")
         self.assertEqual(result.researcher.source, "model")
+
+    def test_select_roles_subset(self) -> None:
+        self.assertEqual(select_roles("待办"), ("executor",))
+        roles = select_roles("调研 A6 风险并写周报")
+        self.assertIn("researcher", roles)
+        self.assertIn("executor", roles)
+        self.assertIn("writer", roles)
+        brief = coordinate("待办", "")
+        self.assertEqual(brief.active_roles, ("executor",))
+        self.assertEqual(brief.researcher.source, "skipped")
+        self.assertNotIn("调研", brief.as_plan_context())
 
 
 if __name__ == "__main__":

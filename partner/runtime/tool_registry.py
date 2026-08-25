@@ -175,6 +175,20 @@ def _registry() -> dict[str, ToolSpec]:
         confirmation="never",
         expose_mcp=False,
     )
+    out["chart_write"] = ToolSpec(
+        name="chart_write",
+        description="生成本地 SVG 柱状图（series 形如 A:3,B:5）",
+        effect="write",
+        confirmation="never",
+        expose_mcp=False,
+    )
+    out["audio_write"] = ToolSpec(
+        name="audio_write",
+        description="生成本地短 WAV 提示音（非语音合成）",
+        effect="write",
+        confirmation="never",
+        expose_mcp=False,
+    )
     out["summarize"] = ToolSpec(
         name="summarize",
         description="汇总任务材料（内部）",
@@ -379,6 +393,17 @@ def _execute_write(name: str, args: dict[str, str]) -> str:
         goal = args.get("goal") or args.get("query") or args.get("title") or "工作报告"
         materials = args.get("materials") or args.get("body") or args.get("content") or ""
         return report_from_goal(goal, materials)
+    if name == "chart_write":
+        from ..office.report import chart_from_goal
+
+        goal = args.get("goal") or args.get("title") or args.get("query") or "图表"
+        series = args.get("series") or args.get("data") or args.get("query") or ""
+        return chart_from_goal(goal, series)
+    if name == "audio_write":
+        from ..office.report import audio_from_goal
+
+        goal = args.get("goal") or args.get("title") or args.get("query") or "提示音"
+        return audio_from_goal(goal, args.get("seconds") or "0.4")
     raise RuntimeError(f"unknown write tool: {name}")
 
 

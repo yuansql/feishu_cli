@@ -24,6 +24,13 @@ class P2pRouterTests(unittest.TestCase):
         classify.assert_not_called()
         self.assertEqual(intent.action, "today")
 
+    def test_weekly_all_tasks_skips_classify(self) -> None:
+        self.assertEqual(parse_intent("本周的全部任务").action, "weekly_tasks")
+        with patch("partner.routing.p2p_router.classify_intent") as classify:
+            intent = refine_p2p_intent("本周的全部任务")
+        classify.assert_not_called()
+        self.assertEqual(intent.action, "weekly_tasks")
+
     def test_short_followup_is_not_classified_as_help(self) -> None:
         with patch(
             "partner.routing.p2p_router.classify_intent",

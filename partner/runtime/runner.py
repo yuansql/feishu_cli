@@ -131,6 +131,13 @@ def save_task(task: dict[str, Any]) -> None:
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(task, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp.replace(path)
+    try:
+        from ..core.run_store import upsert_run
+
+        upsert_run(task)
+    except Exception:
+        # ponytail: JSON is canonical; index/lease must not block persist
+        emit_trace(task_id, "run_store.upsert_failed")
 
 
 def _migrate_task(task: dict[str, Any]) -> dict[str, Any]:
@@ -1049,9 +1056,13 @@ def _claim_next_background_task() -> dict[str, Any] | None:
     """Claim exactly one queued task across worker processes."""
     import fcntl
 
+    from ..core.run_store import acquire_lease, apply_recovered_leases
+
+    apply_recovered_leases(load_task, save_task)
     root = tasks_dir()
     root.mkdir(parents=True, exist_ok=True)
     lock_path = root / ".worker.lock"
+    owner = f"pid:{os.getpid()}"
     try:
         with lock_path.open("a+", encoding="utf-8") as handle:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
@@ -1068,7 +1079,13 @@ def _claim_next_background_task() -> dict[str, Any] | None:
                 task["worker_pid"] = os.getpid()
                 task["worker_started_at"] = _now_iso()
                 save_task(task)
-                emit_trace(str(task.get("id") or ""), "task.claimed", worker_pid=os.getpid())
+                tid = str(task.get("id") or "")
+                if tid and not acquire_lease(tid, owner):
+                    task["status"] = "queued"
+                    task["worker_pid"] = 0
+                    save_task(task)
+                    continue
+                emit_trace(tid, "task.claimed", worker_pid=os.getpid())
                 return task
     except OSError:
         return None

@@ -73,6 +73,12 @@ class TaskPersistenceTests(unittest.TestCase):
         self.assertEqual(loaded["chat_id"], "oc_p2p")
         self.assertEqual(len(loaded["steps"]), len(steps))
         self.assertEqual(loaded["steps"][0]["status"], "pending")
+        from partner.core.run_store import load_run
+
+        indexed = load_run(task["id"])
+        self.assertIsNotNone(indexed)
+        assert indexed is not None
+        self.assertEqual(indexed["goal"], "A6 上线")
 
     def test_active_task_for_chat(self) -> None:
         create_task("one", "oc_a", plan_steps("one"))

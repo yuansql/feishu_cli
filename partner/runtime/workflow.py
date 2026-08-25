@@ -8,6 +8,8 @@ import os
 import re
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from .planner import _keyword
 from .tool_registry import execute_tool, read_tools
@@ -21,6 +23,8 @@ class WorkflowStep:
     args: dict[str, str]
     when: str = ""
     unless: str = ""
+    repeat: int = 1
+    until: str = ""
 
 
 @dataclass(frozen=True)
@@ -58,12 +62,18 @@ def _parse_step(raw: dict[str, Any]) -> WorkflowStep | None:
         if isinstance(args_raw, dict)
         else {}
     )
+    try:
+        repeat = int(raw.get("repeat") or 1)
+    except (TypeError, ValueError):
+        repeat = 1
     return WorkflowStep(
         title=str(raw.get("title") or tool).strip()[:160],
         tool=tool,
         args=args,
         when=str(raw.get("when") or "").strip(),
         unless=str(raw.get("unless") or "").strip(),
+        repeat=max(1, min(repeat, 8)),
+        until=str(raw.get("until") or "").strip(),
     )
 
 
@@ -191,6 +201,39 @@ def _pattern_hit(pattern: str, text: str) -> bool:
     return False
 
 
+def _http_step(args: dict[str, str]) -> str:
+    url = (args.get("url") or args.get("query") or "").strip()
+    if not url:
+        raise ValueError("http 步骤需要 args.url")
+    lowered = url.lower()
+    if not (lowered.startswith("http://") or lowered.startswith("https://")):
+        raise ValueError("http 只允许 http/https")
+    method = (args.get("method") or "GET").strip().upper() or "GET"
+    if method not in {"GET", "POST", "HEAD"}:
+        raise ValueError(f"http 方法不允许：{method}")
+    body = (args.get("body") or args.get("content") or "").encode("utf-8")
+    req = Request(url, data=body if method == "POST" else None, method=method)
+    req.add_header("User-Agent", "feishu-partner-workflow")
+    if method == "POST" and body:
+        req.add_header("Content-Type", args.get("content_type") or "text/plain; charset=utf-8")
+    try:
+        with urlopen(req, timeout=8) as resp:
+            raw = resp.read(65536)
+            status = getattr(resp, "status", None) or resp.getcode()
+    except HTTPError as exc:
+        return f"HTTP {exc.code} {url}\n{(exc.read(2000) or b'').decode('utf-8', 'replace')}"
+    except (URLError, TimeoutError, OSError) as exc:
+        raise RuntimeError(f"http 失败：{exc}") from exc
+    text = raw.decode("utf-8", "replace")
+    return f"HTTP {status} {url}\n{text}"
+
+
+def _execute_step(step: WorkflowStep, args: dict[str, str]) -> str:
+    if step.tool == "http":
+        return _http_step(args)
+    return execute_tool(step.tool, args, confirmed=False)
+
+
 def _should_run_step(step: WorkflowStep, *, goal: str, executed: list[dict[str, Any]]) -> bool:
     hay = _haystack(goal, executed)
     if step.when and not _pattern_hit(step.when, hay):
@@ -244,7 +287,7 @@ def run_workflow(
             executed.append(row)
             emit_trace(trace_id, "workflow.step", workflow_id=wf.id, **row)
             continue
-        if step.tool not in read_tools():
+        if step.tool != "http" and step.tool not in read_tools():
             row = {
                 "index": index,
                 "title": step.title,
@@ -258,14 +301,20 @@ def run_workflow(
         args = _render_args(step.args, goal=cleaned_goal)
         if step.tool == "search" and not args.get("query"):
             args["query"] = _keyword(cleaned_goal)
-        try:
-            result = execute_tool(step.tool, args, confirmed=False)
-            status = "done"
-            error = ""
-        except Exception as exc:  # noqa: BLE001 - surface to user
-            result = ""
-            status = "failed"
-            error = str(exc)
+        chunks: list[str] = []
+        status = "done"
+        error = ""
+        for _attempt in range(step.repeat):
+            try:
+                chunk = _execute_step(step, args)
+                chunks.append(chunk)
+                if step.until and _pattern_hit(step.until, chunk):
+                    break
+            except Exception as exc:  # noqa: BLE001 - surface to user
+                status = "failed"
+                error = str(exc)
+                break
+        result = "\n".join(chunks)
         row = {
             "index": index,
             "title": step.title,

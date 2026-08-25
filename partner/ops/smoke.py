@@ -99,6 +99,12 @@ def smoke_cases() -> list[SmokeCase]:
             expect_not_contains=("正文空", "个人内容消费", "给改写用"),
         ),
         SmokeCase(
+            "weekly-tasks-all",
+            "本周的全部任务",
+            expect_action="weekly_tasks",
+            run_dispatch=False,  # routing only; live dispatch already covered by weekly-tasks-msg
+        ),
+        SmokeCase(
             "doc-edit-append",
             "https://it82yw7fgr.feishu.cn/docx/JQmIdVhCmoQLbRxHMnbcO7sMnkc\n\n本周的一些活需要添加到第二个月中",
             expect_action="write_doc",

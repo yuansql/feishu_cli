@@ -50,6 +50,7 @@ PARTNER_CMDS = {
     "webhook",
     "workflow",
     "rag",
+    "runs",
     "sandbox",
     "eval",
     "smoke",
@@ -155,9 +156,10 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("workflow")
 
     p_rag = sub.add_parser("rag")
-    p_rag.add_argument("rag_cmd", nargs="?", choices=["index", "query", "stats"])
+    p_rag.add_argument("rag_cmd", nargs="?", choices=["index", "query", "stats", "sync"])
     p_rag.add_argument("rag_args", nargs="*", default=[])
 
+    sub.add_parser("runs")
     sub.add_parser("sandbox")
     sub.add_parser("eval")
 
@@ -336,8 +338,15 @@ def main(argv: list[str] | None = None) -> int:
             print(rag_cli(index=arg))
         elif cmd == "query":
             print(rag_cli(query=arg))
+        elif cmd == "sync":
+            print(rag_cli(sync=True))
         else:
             print(rag_cli())
+        return 0
+    if args.cmd == "runs":
+        from ..core.run_store import list_runs_text
+
+        print(list_runs_text())
         return 0
     if args.cmd == "sandbox":
         from ..runtime.sandbox import sandbox_status_text
