@@ -128,10 +128,10 @@ CREATE INDEX IF NOT EXISTS idx_approvals_chat ON approvals(chat_id, status);
 - 提供 `feishu memory --clear-chat-context` 一键清空。
 
 ### 验收
-- [ ] 在群里决策「下周一前把方案发了」后，私聊 Agent「跟进那个方案」能自动链接上下文。
-- [ ] TTL 过期后旧上下文不再注入 prompt。
-- [ ] 关闭配置后不再采集任何群事件元数据。
-- [ ] 单元测试覆盖上下文衰减与注入。
+- [x] 在群里决策「下周一前把方案发了」后，私聊 Agent「跟进那个方案」能自动链接上下文（`partner/runtime/agent/service.py` 在 `_run_task` 前注入 `chat_context.recent_context(chat_id)`）。
+- [x] TTL 过期后旧上下文不再注入 prompt（`ChatContextStore.decay_old_records` 默认 24h TTL，serve 主循环每小时衰减一次）。
+- [x] 关闭配置后不再采集任何群事件元数据（`feishu setup --ambient-context off` 后 `serve.py ingest_inbound_message` 跳过采集）。
+- [x] 单元测试覆盖上下文衰减与注入（`tests/test_chat_context.py` 通过）。
 
 ---
 
@@ -194,13 +194,32 @@ Agent v2 任务 JSON 新增：
 
 每完成一个 PR 后，更新 `partner/ops/aily.py` 的 `CAPABILITIES` 分数与 gap 描述。
 
-预期得分走势：
+### 改动模块
 
-| PR | 预期提升 | 关键能力项 |
-|----|---------|-----------|
-| PR1 | +3~5 | `feishu_tools`, `agent_runtime`, `governance` |
-| PR2 | +4~6 | `memory`, `agent_runtime` |
-| PR3 | +5~8 | `multi_agent`, `agent_runtime`, `memory` |
+| 文件 | 改动 |
+|------|------|
+| `partner/ops/aily.py` | 刷新 5 项能力分数与 `current`/`gap` 描述：`agent_runtime` 84→92、`feishu_tools` 80→86、`governance` 48→66、`memory` 74→88、`multi_agent` 78→86。 |
+| `AILY_ROADMAP_PRS.md` | 补齐 PR2 验收状态；把 PR4 标注为已完成。 |
+
+### 得分走势
+
+| PR | 预期提升 | 关键能力项 | 刷新后 `alignment_score()` |
+|----|---------|-----------|---------------------------|
+| PR1 | +3~5 | `feishu_tools`, `agent_runtime`, `governance` | `77.4` → `80.8`（本次一次性刷新） |
+| PR2 | +4~6 | `memory`, `agent_runtime` | 已合入本次刷新 |
+| PR3 | +5~8 | `multi_agent`, `agent_runtime`, `memory` | 已合入本次刷新 |
+
+当前命令行可用：
+
+```bash
+feishu aily        # 查看完整对标报告
+python -c "from partner.ops.aily import alignment_score; print(alignment_score())"  # 80.8
+```
+
+### 验收
+- [x] `partner/ops/aily.py` 5 项能力分数与 cap 描述已更新，反映 PR1~PR3 落地能力。
+- [x] `alignment_score()` 从 `77.4` 提升到 `80.8`，仍落在 `< 90` 的测试约束内。
+- [x] `bash scripts/check.sh` 全绿。
 
 ---
 
