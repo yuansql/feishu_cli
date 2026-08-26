@@ -60,6 +60,7 @@ from ..runtime.agent.service import (
     confirm_agent_writes_by_message,
     decline_agent_writes_by_message,
     resume_agent_task_after_claim,
+    start_agent_task,
 )
 from ..office.watch import consider, format_watch_push
 
@@ -84,7 +85,9 @@ _last_chat_sync = 0.0
 _last_approval_expire_check = 0.0
 _APPROVAL_EXPIRE_INTERVAL_SEC = 60.0
 _CHAT_CONTEXT_DECAY_INTERVAL_SEC = 3600.0
+_TRIGGER_POLL_INTERVAL_SEC = 60.0
 _last_chat_context_decay = 0.0
+_last_trigger_poll = 0.0
 
 
 def _log(line: str) -> None:
@@ -669,6 +672,41 @@ def _maybe_expire_approvals() -> None:
             _log("approval-expired-card fail: " + str(exc)[:160])
 
 
+def _maybe_run_triggers() -> None:
+    """Fire due scheduled triggers and enqueue background Agent tasks."""
+    global _last_trigger_poll
+    now_mono = time.monotonic()
+    if now_mono - _last_trigger_poll < _TRIGGER_POLL_INTERVAL_SEC:
+        return
+    _last_trigger_poll = now_mono
+    try:
+        from ..core.triggers import mark_trigger_run, poll_due_triggers
+
+        due = poll_due_triggers()
+    except Exception as exc:
+        _log("trigger-poll fail: " + str(exc)[:160])
+        return
+    for spec in due:
+        trigger_id = str(spec.get("id") or "").strip()
+        goal = str(spec.get("goal") or "").strip()
+        chat_id = (
+            str(spec.get("chat_id") or "").strip() or P2P_CHAT_ID
+        )
+        title = str(spec.get("title") or goal[:30] or "触发器").strip()
+        try:
+            start_agent_task(goal, chat_id, background=True)
+            mark_trigger_run(trigger_id)
+        except Exception as exc:
+            _log(f"trigger-run fail {trigger_id}: " + str(exc)[:160])
+            continue
+        notify = f"⏰ 触发器「{title}」已启动：{goal}"
+        try:
+            result = send_checked(chat_id, notify, as_identity="bot")
+            _log("trigger-notify: " + result + " " + trigger_id)
+        except Exception as exc:
+            _log(f"trigger-notify fail {trigger_id}: " + str(exc)[:160])
+
+
 def _spawn_consume(
     binary: Path,
     event_key: str,
@@ -722,6 +760,7 @@ def serve(timeout: str | None = None, max_events: int = 0) -> int:
             _maybe_sync_user_chats()
             _maybe_decay_chat_context()
             _maybe_expire_approvals()
+            _maybe_run_triggers()
             ensure_worker()
             live: list[int] = []
             if msg_proc.poll() is None:

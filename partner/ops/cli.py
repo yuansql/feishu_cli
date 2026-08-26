@@ -59,6 +59,7 @@ PARTNER_CMDS = {
     "report",
     "memory",
     "agent",
+    "triggers",
 }
 
 
@@ -164,6 +165,8 @@ def main(argv: list[str] | None = None) -> int:
     p_runs.add_argument("--patches", action="store_true")
     p_runs.add_argument("--progress", action="store_true")
     p_runs.add_argument("--task-id", default="")
+    p_triggers = sub.add_parser("triggers")
+    p_triggers.add_argument("trig_args", nargs="*", default=[])
     sub.add_parser("sandbox")
     sub.add_parser("eval")
 
@@ -371,6 +374,10 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         print(list_runs_text())
         return 0
+    if args.cmd == "triggers":
+        from .triggers_cli import triggers_cli
+
+        return triggers_cli(list(args.trig_args or []))
     if args.cmd == "sandbox":
         from ..runtime.sandbox import sandbox_status_text
 
