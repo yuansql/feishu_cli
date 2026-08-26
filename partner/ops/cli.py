@@ -98,6 +98,7 @@ def main(argv: list[str] | None = None) -> int:
     p_setup = sub.add_parser("setup")
     p_setup.add_argument("--name", default="")
     p_setup.add_argument("--weekly-query", default="")
+    p_setup.add_argument("--ambient-context", default="", choices=["on", "off", ""])
     p_setup.add_argument("--force", action="store_true")
 
     p_report = sub.add_parser("report")
@@ -159,7 +160,10 @@ def main(argv: list[str] | None = None) -> int:
     p_rag.add_argument("rag_cmd", nargs="?", choices=["index", "query", "stats", "sync"])
     p_rag.add_argument("rag_args", nargs="*", default=[])
 
-    sub.add_parser("runs")
+    p_runs = sub.add_parser("runs")
+    p_runs.add_argument("--patches", action="store_true")
+    p_runs.add_argument("--progress", action="store_true")
+    p_runs.add_argument("--task-id", default="")
     sub.add_parser("sandbox")
     sub.add_parser("eval")
 
@@ -213,6 +217,7 @@ def main(argv: list[str] | None = None) -> int:
             setup_text(
                 name=args.name,
                 weekly_query=args.weekly_query,
+                ambient_context=args.ambient_context,
                 force=args.force,
             )
         )
@@ -345,7 +350,25 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd == "runs":
         from ..core.run_store import list_runs_text
+        from ..office.progress_card import progress_brief_card, format_patches_text
+        from ..runtime.agent.service import load_task
+        from ..actions import send_card
 
+        task_id = str(getattr(args, "task_id", "") or "").strip()
+        if getattr(args, "patches", False):
+            print(list_runs_text(task_id=task_id))
+            return 0
+        if getattr(args, "progress", False):
+            task = load_task(task_id) if task_id else None
+            if not task_id:
+                print("请提供 --task-id")
+                return 1
+            card = progress_brief_card(task)
+            if card:
+                print(send_card(task.get("chat_id", ""), card, as_identity="bot"))
+            else:
+                print(format_patches_text(task))
+            return 0
         print(list_runs_text())
         return 0
     if args.cmd == "sandbox":

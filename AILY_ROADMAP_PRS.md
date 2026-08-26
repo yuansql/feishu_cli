@@ -35,9 +35,11 @@
 | `partner/runtime/agent/graph.py` | `act_node` 中写操作未确认时，把 `pending_write` enriched 为 `{tool, args}` 而不是只存 reason。 |
 | `partner/runtime/agent/service.py` | 新增 `_maybe_request_approval(task)`；`_run_task` 检测到 `blocked` 且 `pending_write` 时调用；新增 `confirm/decline_agent_writes_by_message(message_id)`。 |
 | `partner/office/approval_card.py` | 新建：统一确认卡片生成器，支持 `approve/decline` 按钮、diff 展示、超时时间。 |
-| `partner/core/events.py` | `CardAction` 增加 `task_id` 字段；`extract_card_action` 兼容新的 approval value。 |
-| `partner/ops/serve.py` | 在 `_handle_line` 中处理 `act in {"approve", "decline"}`，调用 `confirm_agent_writes_by_message` / `decline_agent_writes_by_message` 并给用户回执卡片。 |
-| `partner/ops/aily.py` | `feishu_tools` / `agent_runtime` / `governance` 能力分按实际落地项更新 local_score。 |
+| `partner/core/events.py` | `CardAction` 增加 `task_id` / `message_id` / `token` 字段；`extract_card_action` 兼容新的 approval value。 |
+| `partner/ops/serve.py` | 处理 `act in {"approve", "decline"}` 卡片回调；新增文本回复 fallback：用户回复确认/取消类关键词也能审批当前聊天的 pending approval。 |
+| `partner/core/run_store.py` | 新建 `approvals` 表（含 `chat_id`、`expires_at`、`token` 及迁移），支持 request/approve/decline/get/expire 与按聊天查询。 |
+| `tests/test_approval_card.py` | 覆盖卡片 payload、审批状态机、回调解析、超时撤销。 |
+| `tests/test_serve_approval_text.py` | 覆盖文字回复审批 fallback。 |
 | `scripts/check.sh` | 检测项目 venv（`~/.workbuddy/binaries/python/envs/feishu_cli`），存在则优先使用，避免依赖缺失导致检查失败。 |
 
 ### 数据模型
@@ -66,24 +68,29 @@ SQLite `approvals` 表（幂等 + 审计）：
 CREATE TABLE IF NOT EXISTS approvals (
     task_id TEXT PRIMARY KEY,
     message_id TEXT NOT NULL UNIQUE,
+    chat_id TEXT NOT NULL DEFAULT '',
     tool TEXT NOT NULL,
     args_json TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending',
     requested_at TEXT NOT NULL,
     resolved_at TEXT,
+    expires_at TEXT NOT NULL DEFAULT '',
     operator_id TEXT,
     token TEXT NOT NULL,
     FOREIGN KEY(task_id) REFERENCES runs(task_id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_approvals_message ON approvals(message_id);
 CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status, requested_at);
+CREATE INDEX IF NOT EXISTS idx_approvals_expires ON approvals(status, expires_at);
+CREATE INDEX IF NOT EXISTS idx_approvals_chat ON approvals(chat_id, status);
 ```
 
 ### 验收
 - [x] 单元测试覆盖卡片生成、审批状态机、回调解析与超时撤销（`tests/test_approval_card.py`）。
-- [ ] 跑 `feishu agent 规划 写一个周报` 触发 `docs_create`，用户收到交互卡片。
-- [ ] 点击「确认」后任务继续，飞书侧真实生成文档。
-- [ ] 点击「取消」后任务状态变为 `cancelled`，不再写入。
+- [x] 真实飞书机器人单聊收到确认卡片（heuristic 模式下也能触发的通用写权限卡片）。
+- [x] `decline_agent_writes_by_message` + `approval_result_card` 链路手动验证通过，任务状态变为 `cancelled`。
+- [x] 文字回复 fallback：用户回复「确认写入」/「取消」等关键词即可审批当前 pending approval，已单测覆盖，无需依赖卡片按钮回调。
+- [ ] 飞书卡片按钮回调 + 文字消息事件尚未到达 `feishu serve`：`lark-cli event consume card.action.trigger` 与 `im.message.receive_v1` 均能启动并 ready，但实际点击/发送后未收到 payload。需检查飞书开放平台对应自建应用的 **事件与回调** 订阅（确认已勾选 `card.action.trigger`、`im.message.receive_v1`）、机器人 **读取/发送消息** 权限，并重新发布 + 重新授权安装。
 - [x] 5 分钟未处理自动撤销：`_maybe_expire_approvals()` 已挂到 `feishu serve` 主循环（60 秒窗口），状态变为 `expired` 并发送过期通知卡片。
 - [x] 同一任务连续点击不会出现重复写入（approval token + status 校验）。
 - [x] `bash scripts/check.sh` 全绿（依赖安装到独立 venv）。
@@ -109,11 +116,11 @@ CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status, requested_a
 
 | 文件 | 改动 |
 |------|------|
-| `partner/core/chat_context.py` | 新建：`ChatContextStore` 负责采集、衰减、查询群聊天上下文；只存储元数据（sender、@、message_id、timestamp、简要提取）。 |
-| `partner/ops/serve.py` | 在 `_handle_line` 收到群消息且配置开启时，调用 `chat_context.ingest(msg)`；用户发起 Agent 任务前把 context 注入 prompt。 |
-| `partner/compose/hermes_setup.py` / `partner/compose/llm.py` | 增加 `with_chat_context(goal, chat_id) -> enriched_goal`。 |
-| `partner/runtime/agent/brain.py` | `decide()` prompt 增加可选的「最近群聊上下文」段落。 |
-| `partner/ops/setup.py` | `feishu setup` 增加 `--ambient-context {on,off}` 配置项，写入 `~/.feishu-partner/config.json`。 |
+| `partner/core/chat_context.py` | 新建：采集、衰减、查询聊天上下文；只存元数据（sender、@、message_id、timestamp、text），默认 TTL 24h。 |
+| `partner/ops/serve.py` | 收到非 bot 消息时调用 `chat_context.ingest_inbound_message(msg)`；主循环每小时衰减一次旧上下文。 |
+| `partner/runtime/agent/service.py` | `_run_task` 前把 `chat_context.recent_context(chat_id)` 注入 task observations。 |
+| `partner/ops/setup.py` | `feishu setup` 增加 `--ambient-context {on,off}`，默认写入 `ambient_context: on`。 |
+| `tests/test_chat_context.py` | 覆盖开关、采集、衰减、渲染。 |
 
 ### 隐私边界
 - 只记录用户已加入的群。

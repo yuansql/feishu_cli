@@ -70,6 +70,7 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS approvals (
                 task_id TEXT PRIMARY KEY,
                 message_id TEXT NOT NULL UNIQUE,
+                chat_id TEXT NOT NULL DEFAULT '',
                 tool TEXT NOT NULL,
                 args_json TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'pending',
@@ -83,6 +84,7 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_approvals_message ON approvals(message_id);
             CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status, requested_at);
             CREATE INDEX IF NOT EXISTS idx_approvals_expires ON approvals(status, expires_at);
+            CREATE INDEX IF NOT EXISTS idx_approvals_chat ON approvals(chat_id, status);
             """
         )
         conn.commit()
@@ -98,30 +100,35 @@ def _iso(now: datetime | None = None) -> str:
 
 
 def _migrate_approvals(conn: sqlite3.Connection) -> None:
-    """Ensure the approvals table has an expires_at column."""
+    """Ensure the approvals table has expires_at and chat_id columns."""
     columns = {
         str(row[1]) for row in conn.execute(
             "PRAGMA table_info(approvals)"
         ).fetchall()
     }
-    if "expires_at" in columns:
-        return
-    conn.execute(
-        "ALTER TABLE approvals ADD COLUMN expires_at TEXT NOT NULL DEFAULT ''"
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_approvals_expires ON approvals(status, expires_at)"
-    )
-    # Older rows without an explicit expiry are considered to expire one day
-    # after they were requested so they do not sit pending forever, while
-    # still giving the user a reasonable grace period to update the schema.
-    conn.execute(
-        """
-        UPDATE approvals
-        SET expires_at = datetime(requested_at, '+1 day')
-        WHERE expires_at = '' AND status = 'pending'
-        """
-    )
+    if "expires_at" not in columns:
+        conn.execute(
+            "ALTER TABLE approvals ADD COLUMN expires_at TEXT NOT NULL DEFAULT ''"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_approvals_expires ON approvals(status, expires_at)"
+        )
+        # Older rows without an explicit expiry are considered to expire one
+        # day after they were requested.
+        conn.execute(
+            """
+            UPDATE approvals
+            SET expires_at = datetime(requested_at, '+1 day')
+            WHERE expires_at = '' AND status = 'pending'
+            """
+        )
+    if "chat_id" not in columns:
+        conn.execute(
+            "ALTER TABLE approvals ADD COLUMN chat_id TEXT NOT NULL DEFAULT ''"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_approvals_chat ON approvals(chat_id, status)"
+        )
     conn.commit()
 
 
@@ -356,6 +363,7 @@ def request_approval(
     *,
     task_id: str,
     message_id: str,
+    chat_id: str = "",
     tool: str,
     args: dict[str, Any],
     operator_id: str = "",
@@ -387,11 +395,12 @@ def request_approval(
         conn.execute(
             """
             INSERT INTO approvals (
-                task_id, message_id, tool, args_json, status,
+                task_id, message_id, chat_id, tool, args_json, status,
                 requested_at, resolved_at, expires_at, operator_id, token
-            ) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)
             ON CONFLICT(task_id) DO UPDATE SET
                 message_id = excluded.message_id,
+                chat_id = excluded.chat_id,
                 tool = excluded.tool,
                 args_json = excluded.args_json,
                 status = 'pending',
@@ -403,6 +412,7 @@ def request_approval(
             (
                 tid,
                 mid,
+                (chat_id or "").strip(),
                 (tool or "").strip(),
                 json.dumps(args or {}, ensure_ascii=False),
                 requested_at,
@@ -543,8 +553,53 @@ def expire_stale_approvals(*, now: datetime | None = None) -> list[dict[str, Any
     return out
 
 
-def list_runs_text(*, limit: int = 12) -> str:
+def list_pending_approvals_for_chat(
+    chat_id: str, *, since_iso: str = ""
+) -> list[dict[str, Any]]:
+    """Return pending approvals for a chat, optionally newer than since_iso."""
     init_db()
+    cid = (chat_id or "").strip()
+    if not cid:
+        return []
+    since = since_iso.strip()
+    with _connect() as conn:
+        if since:
+            rows = conn.execute(
+                """
+                SELECT * FROM approvals
+                WHERE chat_id = ? AND status = 'pending' AND requested_at > ?
+                ORDER BY requested_at DESC
+                """,
+                (cid, since),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT * FROM approvals
+                WHERE chat_id = ? AND status = 'pending'
+                ORDER BY requested_at DESC
+                """,
+                (cid,),
+            ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def list_runs_text(*, limit: int = 12, task_id: str = "") -> str:
+    init_db()
+    if task_id:
+        with _connect() as conn:
+            row = conn.execute(
+                """
+                SELECT task_id, status, goal, chat_id, lease_owner, lease_until, updated_at
+                FROM runs WHERE task_id = ?
+                """,
+                (task_id,),
+            ).fetchone()
+        if not row:
+            return f"找不到运行记录 {task_id}。"
+        payload = load_run(task_id) or {}
+        from ..runtime.agent.service import format_patches_text
+        return format_patches_text(payload)
     cap = max(1, min(int(limit), 50))
     with _connect() as conn:
         rows = conn.execute(

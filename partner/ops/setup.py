@@ -57,7 +57,13 @@ def _pick_p2p_chat(payload: dict[str, Any], _bot_open_id: str = "") -> str:
     return ""
 
 
-def setup_text(*, name: str = "", weekly_query: str = "", force: bool = False) -> str:
+def setup_text(
+    *,
+    name: str = "",
+    weekly_query: str = "",
+    ambient_context: str = "",
+    force: bool = False,
+) -> str:
     display = (name or "").strip() or (USER_NAMES[0] if USER_NAMES else "")
     if not display:
         return "用法：feishu setup --name 你的名字\n会写入 ~/.feishu-partner/config.json（不进 git）。"
@@ -88,6 +94,9 @@ def setup_text(*, name: str = "", weekly_query: str = "", force: bool = False) -
         )
 
     weekly = (weekly_query or "").strip() or f"{display} 周报"
+    ambient = (ambient_context or "").strip().lower()
+    if ambient not in {"on", "off"}:
+        ambient = "on"
     path = save_config(
         {
             "user_open_id": user_oid,
@@ -95,6 +104,7 @@ def setup_text(*, name: str = "", weekly_query: str = "", force: bool = False) -
             "p2p_chat_id": p2p,
             "user_names": display,
             "weekly_query": weekly,
+            "ambient_context": ambient,
         }
     )
     from ..core.ids import reload_identity
@@ -113,6 +123,7 @@ def setup_text(*, name: str = "", weekly_query: str = "", force: bool = False) -
         f"- 单聊：{p2p}\n"
         f"- 称呼：{display}\n"
         f"- 周报检索：{weekly}\n"
+        f"- 上下文采集：{ambient}\n"
         f"- Agents.md：{agents}\n\n"
         "下一步：feishu doctor && feishu serve --install\n"
         "若 serve 已在跑：launchctl kickstart -k gui/$(id -u)/com.feishu.partner.serve"

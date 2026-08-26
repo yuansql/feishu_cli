@@ -15,6 +15,9 @@ from .graph import run_loop
 CN_TZ = timezone(timedelta(hours=8))
 RUNTIME = "agent_v2"
 
+# Intent-patch actions that can be appended by other users in group chats.
+_PATCH_ACTIONS = frozenset({"append", "override", "cancel"})
+
 
 def tasks_dir() -> Path:
     override = os.environ.get("FEISHU_PARTNER_TASKS_DIR")
@@ -129,6 +132,147 @@ def _apply_loop_result(task: dict[str, Any], final: dict[str, Any]) -> dict[str,
     return task
 
 
+def _merge_intent_patches(task: dict[str, Any]) -> bool:
+    """Merge unmerged intent patches into observations and mark them merged.
+
+    Returns True if any patch was consumed. Cancel patches terminal the task.
+    """
+    patches = task.get("intent_patches")
+    if not isinstance(patches, list):
+        return False
+    changed = False
+    observations = list(task.get("observations") or [])
+    for patch in patches:
+        if not isinstance(patch, dict) or patch.get("merged"):
+            continue
+        action = str(patch.get("action") or "append").strip().lower()
+        if action not in _PATCH_ACTIONS:
+            action = "append"
+        text = str(patch.get("text") or "").strip()
+        if not text:
+            patch["merged"] = True
+            continue
+        changed = True
+        author = str(patch.get("sender_name") or patch.get("author_open_id") or "某人")
+        if action == "cancel":
+            task["status"] = "cancelled"
+            task["summary"] = (task.get("summary") or "") + f"\n（{author} 取消任务）"
+            task["pending_write"] = None
+            patch["merged"] = True
+            save_task(task)
+            emit_trace(
+                str(task.get("id") or ""),
+                "agent_v2.patch_cancelled",
+                author=author,
+            )
+            return True
+        label = {
+            "append": "补充要求",
+            "override": "目标修正",
+        }.get(action, "补充要求")
+        observations.append(f"[{label} · {author}] {text}")
+        patch["merged"] = True
+    if changed:
+        task["observations"] = observations
+        save_task(task)
+    return changed
+
+
+def append_intent_patch(
+    task_id: str,
+    patch: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Append an intent patch to a running/blocked agent task.
+
+    Patch fields: author_open_id, text, action (append/override/cancel), ts.
+    Returns the updated task or None if the task is not patchable.
+    """
+    task = load_task(task_id)
+    if not task or task.get("runtime") != RUNTIME:
+        return None
+    status = str(task.get("status") or "")
+    if status in {"done", "failed", "cancelled"}:
+        return None
+    author = str(patch.get("author_open_id") or patch.get("sender_name") or "")
+    text = str(patch.get("text") or "").strip()
+    if not author or not text:
+        return None
+    action = str(patch.get("action") or "append").strip().lower()
+    if action not in _PATCH_ACTIONS:
+        action = "append"
+    entry = {
+        "author_open_id": author,
+        "sender_name": str(patch.get("sender_name") or "").strip(),
+        "text": text,
+        "action": action,
+        "ts": str(patch.get("ts") or "").strip() or _now(),
+        "merged": False,
+    }
+    patches = task.get("intent_patches")
+    if not isinstance(patches, list):
+        patches = []
+    patches.append(entry)
+    task["intent_patches"] = patches
+    save_task(task)
+    emit_trace(
+        str(task.get("id") or ""),
+        "agent_v2.patch_appended",
+        author=author,
+        action=action,
+        text=text[:120],
+    )
+    return task
+
+
+def claim_confirmation(task_id: str, operator_id: str) -> dict[str, Any]:
+    """Allow another user to take over a blocked approval and resume the task.
+
+    Returns {"ok": bool, "task": task_or_none, "error": str, "message_id": str}.
+    """
+    result: dict[str, Any] = {
+        "ok": False,
+        "task": None,
+        "error": "",
+        "message_id": "",
+    }
+    task = load_task(task_id)
+    if not task or task.get("runtime") != RUNTIME:
+        result["error"] = "找不到 Agent 任务。"
+        return result
+    if str(task.get("status")) != "blocked":
+        result["error"] = "任务当前不在确认闸上。"
+        result["task"] = task
+        return result
+    pending = task.get("pending_write") or {}
+    approval = pending.get("approval") or {}
+    message_id = str(approval.get("message_id") or "").strip()
+    token = str(approval.get("token") or "").strip()
+    if not message_id:
+        result["error"] = "没有待确认的写操作。"
+        return result
+    from ...core.run_store import approve_approval
+
+    resolved = approve_approval(message_id, operator_id=operator_id, token=token)
+    if not resolved:
+        # Approval may already be resolved or token mismatch; still safe to fail.
+        result["error"] = "接管确认失败（可能已被处理或令牌不匹配）。"
+        return result
+    task["allow_writes"] = True
+    task["status"] = "running"
+    task["pending_write"] = None
+    save_task(task)
+    emit_trace(
+        str(task.get("id") or ""),
+        "agent_v2.confirmation_claimed",
+        operator_id=operator_id,
+        message_id=message_id,
+    )
+    result["ok"] = True
+    result["task"] = task
+    result["message_id"] = message_id
+    return result
+
+
 def start_agent_task(goal: str, chat_id: str, *, background: bool = False) -> str:
     from .settings import agent_max_steps, ensure_agent_config
 
@@ -142,12 +286,13 @@ def start_agent_task(goal: str, chat_id: str, *, background: bool = False) -> st
         "chat_id": (chat_id or "").strip(),
         "goal": cleaned,
         "runtime": RUNTIME,
-        "schema_version": 3,
+        "schema_version": 4,
         "status": "queued" if background else "running",
         "background": bool(background),
         "allow_writes": False,
         "observations": [],
         "thoughts": [],
+        "intent_patches": [],
         "pending_write": None,
         "summary": "",
         "steps_taken": 0,
@@ -168,8 +313,33 @@ def start_agent_task(goal: str, chat_id: str, *, background: bool = False) -> st
     return _run_task(task)
 
 
+def _inject_chat_context(task: dict[str, Any]) -> None:
+    """Prepend recent chat context as an observation if available."""
+    chat_id = str(task.get("chat_id") or "").strip()
+    if not chat_id:
+        return
+    try:
+        from ...core import chat_context
+
+        ctx = chat_context.recent_context(chat_id, hours=24, max_items=20)
+    except Exception:  # noqa: BLE001
+        return
+    if not ctx:
+        return
+    observations: list[str] = list(task.get("observations") or [])
+    observations.append(ctx)
+    task["observations"] = observations
+
+
 def _run_task(task: dict[str, Any]) -> str:
     task["status"] = "running"
+    _inject_chat_context(task)
+    _merge_intent_patches(task)
+    # Re-load in case a cancel patch terminalled the task during merge.
+    task = load_task(str(task.get("id") or "")) or task
+    if str(task.get("status")) == "cancelled":
+        save_task(task)
+        return _format_result(task)
     save_task(task)
     final = run_loop(
         goal=str(task.get("goal") or ""),
@@ -202,7 +372,7 @@ def _maybe_request_approval(task: dict[str, Any]) -> None:
         return
     tool = str(pending.get("tool") or "").strip()
     args = pending.get("args") if isinstance(pending.get("args"), dict) else {}
-    if not tool:
+    if not tool and pending.get("reason") != "confirmation":
         return
     message_id = f"apv_{uuid.uuid4().hex[:16]}"
     token = uuid.uuid4().hex
@@ -213,6 +383,7 @@ def _maybe_request_approval(task: dict[str, Any]) -> None:
     ok = request_approval(
         task_id=task_id,
         message_id=message_id,
+        chat_id=chat_id,
         tool=tool,
         args=args,
         token=token,
@@ -251,6 +422,15 @@ def resume_agent_task(task_id: str) -> str:
         return "找不到 Agent 任务。"
     if str(task.get("status") or "") == "cancelled":
         return _format_result(task)
+    return _run_task(task)
+
+
+def resume_agent_task_after_claim(task_id: str, operator_id: str) -> str:
+    """Claim a pending approval from another user and resume the task."""
+    result = claim_confirmation(task_id, operator_id)
+    if not result.get("ok"):
+        return result.get("error") or "接管确认失败。"
+    task = result.get("task")
     return _run_task(task)
 
 

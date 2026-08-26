@@ -39,10 +39,12 @@ def _tool_label(tool: str) -> str:
         "task_create": "创建飞书任务",
         "docs_create": "新建飞书云文档",
     }
-    return labels.get(tool, f"执行工具 `{tool}`")
+    return labels.get(tool, f"执行工具 `{tool}`") if tool else "允许 Agent 写入飞书"
 
 
 def _risk_level(tool: str) -> str:
+    if not tool:
+        return "中"
     if tool in {"docs_create", "task_create"}:
         return "中"
     if tool == "followup_add":
@@ -65,8 +67,9 @@ def approval_card_payload(
     """
     expires = _now() + timedelta(minutes=max(1, int(timeout_min)))
     expires_text = expires.strftime("%H:%M")
+    has_tool = bool((tool or "").strip())
     label = _tool_label(tool)
-    arg_lines = _format_args(args)
+    arg_lines = _format_args(args) if has_tool else "Agent 将在你确认后继续执行写操作。"
     risk = _risk_level(tool)
     value = json.dumps(
         {
@@ -100,7 +103,7 @@ def approval_card_payload(
             "tag": "div",
             "text": {
                 "tag": "plain_text",
-                "content": "即将写入的参数：",
+                "content": "即将写入的参数：" if has_tool else "说明：",
             },
         },
         {

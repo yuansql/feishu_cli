@@ -14,9 +14,22 @@ from pathlib import Path
 from ..core.ack import ACK_EMOJI, ack_line, should_ack_text
 from ..actions import add_reaction, dispatch, send_card, send_style_card, send_text
 from ..office.brief import already_pushed, push_brief
-from ..core.events import InboundMessage, extract_card_action, extract_inbound_message, should_reply
+from ..core.events import (
+    CardAction,
+    InboundMessage,
+    extract_card_action,
+    extract_inbound_message,
+    should_reply,
+)
 from ..core.ids import BOT_OPEN_ID, P2P_CHAT_ID, USER_OPEN_ID, identity_hint, identity_ready, reload_identity
-from ..core.run_store import expire_stale_approvals, load_run
+from ..core.run_store import (
+    approve_approval,
+    decline_approval,
+    expire_stale_approvals,
+    list_pending_approvals_for_chat,
+    load_run,
+)
+from ..core import chat_context
 from ..office.approval_card import approval_expired_card
 from ..office.followup import (
     apply_action,
@@ -42,10 +55,24 @@ from ..compose.llm import (
 from ..routing.resolved import confirm_card
 from ..runtime.runner import ensure_worker
 from ..runtime.agent.service import (
+    active_agent_task,
+    append_intent_patch,
     confirm_agent_writes_by_message,
     decline_agent_writes_by_message,
+    resume_agent_task_after_claim,
 )
 from ..office.watch import consider, format_watch_push
+
+_CONTROL_INTENTS = frozenset({
+    "task_status", "task_cancel", "task_confirm", "task_continue",
+    "help", "today", "tasks", "brief", "today_recap", "weekly",
+    "tomorrow", "chats", "inbox", "approval", "minutes", "aily",
+    "digest", "weekly_tasks", "write_weekly", "write_doc", "plan",
+    "send", "resolve",
+})
+_CLAIM_PHRASES = ("我来确认", "我确认", "我接管", "替我确认")
+_APPEND_CUES = ("再加", "补充", "也加上", "还要", "另外", "追加", "加上", "别忘了")
+_OVERRIDE_CUES = ("改成", "改为")
 
 CN_TZ = timezone(timedelta(hours=8))
 
@@ -56,6 +83,8 @@ _last_bitable_scan = 0.0
 _last_chat_sync = 0.0
 _last_approval_expire_check = 0.0
 _APPROVAL_EXPIRE_INTERVAL_SEC = 60.0
+_CHAT_CONTEXT_DECAY_INTERVAL_SEC = 3600.0
+_last_chat_context_decay = 0.0
 
 
 def _log(line: str) -> None:
@@ -238,6 +267,14 @@ def _handle_line(line: str, seen: set[str]) -> None:
     if msg is None:
         _log("extract: none")
         return
+    if _maybe_handle_approval_text(msg):
+        return
+    if _maybe_claim_confirmation(msg):
+        return
+    if _maybe_append_intent_patch(msg):
+        return
+    if msg.sender_type in {"", "user"}:
+        chat_context.ingest_inbound_message(msg)
     if msg.message_id and msg.message_id in seen:
         return
     if msg.message_id:
@@ -264,6 +301,202 @@ def _handle_line(line: str, seen: set[str]) -> None:
     if decision.notify and wrote:
         result = send_checked(P2P_CHAT_ID, format_watch_push(decision.item), as_identity="bot")
         _log("watch-push: " + result)
+
+
+_APPROVE_KEYWORDS = frozenset({
+    "确认写入", "确认", "同意", "允许", "approve", "ok", "好", "可以",
+})
+_DECLINE_KEYWORDS = frozenset({
+    "取消写入", "取消", "拒绝", "decline", "不要", "算了",
+})
+
+
+def _is_approval_reply(text: str) -> str | None:
+    """Return 'approve'/'decline' if the text is a standalone approval reply."""
+    blob = (text or "").strip().lower()
+    # Treat punctuation/whitespace only as not an approval reply.
+    if not blob or len(blob) > 40:
+        return None
+    # Strip trailing punctuation commonly used in IM replies.
+    stripped = re.sub(r"[。！？.!?]+$", "", blob)
+    if stripped in {k.lower() for k in _APPROVE_KEYWORDS}:
+        return "approve"
+    if stripped in {k.lower() for k in _DECLINE_KEYWORDS}:
+        return "decline"
+    return None
+
+
+def _maybe_handle_approval_text(msg: InboundMessage) -> bool:
+    """Handle text replies that confirm/decline a pending approval card.
+
+    Returns True when the message was consumed as an approval reply.
+    """
+    if msg.sender_type != "user":
+        return False
+    kind = _is_approval_reply(msg.text)
+    if kind is None:
+        return False
+    approvals = list_pending_approvals_for_chat(msg.chat_id)
+    if not approvals:
+        return False
+    approval = approvals[0]
+    act = CardAction(
+        chat_id=msg.chat_id,
+        operator_id=msg.sender_id,
+        event_id=msg.message_id,
+        act=kind,
+        key="",
+        token=str(approval.get("token") or ""),
+        task_id=str(approval.get("task_id") or ""),
+        message_id=str(approval.get("message_id") or ""),
+    )
+    _handle_approval_card(act, approved=(kind == "approve"))
+    _log(f"approval-text: {kind} by {msg.sender_id} for {approval.get('message_id')}")
+    return True
+
+
+def _is_claim_confirmation(text: str) -> bool:
+    blob = (text or "").strip().lower()
+    if not blob or len(blob) > 20:
+        return False
+    blob = re.sub(r"[。！？.!?]+$", "", blob)
+    return blob in {p.lower() for p in _CLAIM_PHRASES}
+
+
+def _maybe_claim_confirmation(msg: InboundMessage) -> bool:
+    """Let another user take over a blocked approval by saying '我来确认'."""
+    if msg.sender_type != "user":
+        return False
+    if not _is_claim_confirmation(msg.text):
+        return False
+    task = active_agent_task(msg.chat_id)
+    if not task:
+        send_checked(
+            msg.chat_id,
+            "当前没有运行中的任务可以接管。",
+            as_identity="bot",
+        )
+        return True
+    status = str(task.get("status") or "")
+    if status != "blocked":
+        send_checked(
+            msg.chat_id,
+            "当前任务不在确认闸上，无需接管。",
+            as_identity="bot",
+        )
+        return True
+    task_id = str(task.get("id") or "").strip()
+    body = resume_agent_task_after_claim(task_id, msg.sender_id)
+    send_checked(msg.chat_id, body, as_identity="bot")
+    _log(f"confirmation-claimed: {task_id} by {msg.sender_id}")
+    return True
+
+
+def _patch_action_from_text(text: str) -> str:
+    lowered = (text or "").lower()
+    if any(c in lowered for c in _OVERRIDE_CUES):
+        return "override"
+    if "取消" in lowered or "算了" in lowered or "不用做" in lowered or "不要" in lowered:
+        return "cancel"
+    return "append"
+
+
+def _maybe_append_intent_patch(msg: InboundMessage) -> bool:
+    """Append a group-chat message as an intent patch to a running agent task.
+
+    Returns True if the message was consumed as a patch.
+    """
+    if msg.chat_type != "group":
+        return False
+    if msg.sender_type in {"app", "bot"}:
+        return False
+    text = strip_wake_prefix(msg.text).strip()
+    if not text or len(text) < 2:
+        return False
+    # Direct @bot messages bypass cue detection and are always treated as patches
+    # unless they are known control intents.
+    is_direct = should_reply(msg, BOT_OPEN_ID)
+    if not is_direct and not (
+        any(c in text for c in _APPEND_CUES)
+        or any(c in text for c in _OVERRIDE_CUES)
+        or "取消" in text
+        or "算了" in text
+        or "不要" in text
+        or "不用做" in text
+    ):
+        return False
+    intent = parse_intent(msg.text)
+    if intent.action in _CONTROL_INTENTS:
+        return False
+    task = active_agent_task(msg.chat_id)
+    if not task:
+        return False
+    status = str(task.get("status") or "")
+    if status in {"done", "failed", "cancelled"}:
+        return False
+    task_id = str(task.get("id") or "").strip()
+    if not task_id:
+        return False
+    action = _patch_action_from_text(text)
+    patch = {
+        "author_open_id": msg.sender_id or msg.sender_name,
+        "sender_name": msg.sender_name,
+        "text": text,
+        "action": action,
+        "ts": datetime.now(CN_TZ).isoformat(timespec="seconds"),
+    }
+    updated = append_intent_patch(task_id, patch)
+    if not updated:
+        return False
+    goal = str(updated.get("goal") or "").strip() or "当前任务"
+    ack = f"已把这条补充追加到任务「{goal}」。可说「任务进度」查看。"
+    if action == "override":
+        ack = f"已把这条修正追加到任务「{goal}」。Agent 下次运行时会按新意图处理。"
+    if action == "cancel":
+        ack = f"已收到取消意图，任务「{goal}」将被终止。"
+    send_checked(msg.chat_id, ack, as_identity="bot")
+    _log(f"intent-patch: {action} by {msg.sender_id} for {task_id}")
+    if _has_patch_conflict(updated) and not updated.get("conflict_notified"):
+        updated["conflict_notified"] = True
+        from ..runtime.agent.service import save_task
+
+        save_task(updated)
+        _send_clarify_card(msg.chat_id, updated)
+    return True
+
+
+def _has_patch_conflict(task: dict[str, Any]) -> bool:
+    """True if unmerged patches contain both cancel and append/override."""
+    patches = [
+        p
+        for p in (task.get("intent_patches") or [])
+        if isinstance(p, dict) and not p.get("merged")
+    ]
+    if not patches:
+        return False
+    has_cancel = any(str(p.get("action") or "") == "cancel" for p in patches)
+    has_continue = any(
+        str(p.get("action") or "") in {"append", "override"} for p in patches
+    )
+    return has_cancel and has_continue
+
+
+def _send_clarify_card(chat_id: str, task: dict[str, Any]) -> None:
+    """Send an informational card when conflicting patches appear."""
+    patches = [
+        p
+        for p in (task.get("intent_patches") or [])
+        if isinstance(p, dict) and not p.get("merged")
+    ]
+    lines = ["当前任务收到互相矛盾的指令："]
+    for p in patches[-6:]:
+        author = str(p.get("sender_name") or p.get("author_open_id") or "某人")
+        action = str(p.get("action") or "append")
+        text = str(p.get("text") or "")[:60]
+        lines.append(f"- {author} [{action}]：{text}")
+    lines.append("")
+    lines.append("请统一意见后回复：继续任务 / 取消任务 / 追加要求。")
+    send_checked(chat_id, "\n".join(lines), as_identity="bot")
 
 
 def _handle_approval_card(act: Any, *, approved: bool) -> None:
@@ -384,6 +617,21 @@ def _maybe_sync_user_chats() -> None:
         _log("assign-push: " + result + " " + str(item.get("id") or ""))
 
 
+def _maybe_decay_chat_context() -> None:
+    """Drop old ambient chat context once per hour."""
+    global _last_chat_context_decay
+    now_mono = time.monotonic()
+    if now_mono - _last_chat_context_decay < _CHAT_CONTEXT_DECAY_INTERVAL_SEC:
+        return
+    _last_chat_context_decay = now_mono
+    try:
+        removed = chat_context.decay()
+        if removed:
+            _log(f"chat-context-decay: removed {removed} old signals")
+    except Exception as exc:  # noqa: BLE001
+        _log("chat-context-decay fail: " + str(exc)[:160])
+
+
 def _maybe_expire_approvals() -> None:
     """Cancel approval requests that have timed out and notify the originating chat."""
     global _last_approval_expire_check
@@ -472,6 +720,7 @@ def serve(timeout: str | None = None, max_events: int = 0) -> int:
             _maybe_push_brief()
             _maybe_scan_bitable()
             _maybe_sync_user_chats()
+            _maybe_decay_chat_context()
             _maybe_expire_approvals()
             ensure_worker()
             live: list[int] = []

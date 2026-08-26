@@ -171,13 +171,22 @@ def memory_context_for_goal(goal: str, *, max_chars: int = 1800) -> str:
 
 def memory_cli(argv: list[str] | None = None) -> str:
     args = list(argv or [])
+    if "--clear-chat-context" in args or "--clear-chat" in args:
+        from ..core import chat_context
+
+        count = chat_context.clear()
+        return f"已清空聊天上下文累计 {count} 条记录。"
     if not args or args[0] in {"show", "status"}:
         path = ensure_agents_md()
         exp = recent_experience(limit=5)
+        from ..core import chat_context
+
+        ctx_count = len(chat_context.load_signals())
         lines = [
             "本地记忆",
             f"- Agents.md：{path}",
             f"- 经验条数：{len(recent_experience(limit=500))}（最近 {len(exp)} 条预览）",
+            f"- 聊天上下文记录：{ctx_count} 条",
             "",
         ]
         if exp:
@@ -204,5 +213,6 @@ def memory_cli(argv: list[str] | None = None) -> str:
         "  feishu memory          # 状态\n"
         "  feishu memory init     # 生成 Agents.md\n"
         "  feishu memory note …  # 追加经验\n"
-        "  feishu memory context 关键词"
+        "  feishu memory context 关键词\n"
+        "  feishu memory --clear-chat-context  # 清空聊天上下文"
     )
