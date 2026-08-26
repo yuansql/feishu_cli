@@ -150,18 +150,43 @@ CREATE INDEX IF NOT EXISTS idx_approvals_chat ON approvals(chat_id, status);
 
 | 文件 | 改动 |
 |------|------|
-| `partner/runtime/agent/store.py` | 增加 `intent_patches: list[dict]` schema：每个 patch 含 `author_open_id`、`ts`、`text`、`action`（append/override/cancel）。 |
-| `partner/runtime/agent/service.py` | 新增 `append_intent_patch(task_id, patch)`；`continue_agent_task` 先合并 patches 再 `run_loop`。 |
-| `partner/runtime/agent/graph.py` | `AgentState` 增加 `patches`；`think_node` 合并 patches 到 goal/observations。 |
-| `partner/routing/p2p_router.py` | 冲突仲裁：当同一任务的 patches 不兼容时，生成多选澄清卡片发到群聊。 |
-| `partner/ops/serve.py` | 群聊 @ 伙伴时，如果已有同 `chat_id` 运行中任务，则追加 patch 而不是新建任务。 |
-| `partner/compose/formatters.py` | 新增「任务进度简报」卡片：定时/手动广播「谁在等什么 / 下一步由谁决定」。 |
+| `partner/runtime/agent/service.py` | Agent v2 任务 schema 升到 v4，新增 `intent_patches: list[dict]`；新增 `append_intent_patch`、`_merge_intent_patches`、`claim_confirmation`、`resume_agent_task_after_claim`。 |
+| `partner/ops/serve.py` | 群聊 @bot 且存在同 `chat_id` 运行中 Agent 任务时，将非控制指令追加为 intent patch；识别「我来确认」接管 blocked 任务写权限；检测到 cancel+append/override 冲突时发送澄清卡片。 |
+| `partner/office/progress_card.py` | 新增「任务进度简报」卡片 `progress_brief_card` 与 `format_patches_text`。 |
+| `partner/core/run_store.py` | `list_runs_text` 支持按 `task_id` 查询补丁明细。 |
+| `partner/ops/cli.py` | `feishu runs` 扩展 `--patches --task-id` 与 `--progress --task-id`。 |
+
+### 数据模型
+
+Agent v2 任务 JSON 新增：
+
+```jsonc
+{
+  "schema_version": 4,
+  "intent_patches": [
+    {
+      "author_open_id": "ou_xxx",
+      "sender_name": "张三",
+      "text": "再加一条风控复盘",
+      "action": "append",
+      "ts": "2026-08-26T12:01:00+08:00",
+      "merged": true
+    }
+  ],
+  "conflict_notified": false
+}
+```
+
+- `action` 支持 `append`（补充要求）、`override`（目标修正）、`cancel`（取消任务）。
+- 未合并 patch 在任务恢复/运行时进入 `observations`，让 Agent 重规划。
+- `cancel` patch 会立即把任务置为 `cancelled`。
 
 ### 验收
-- [ ] 用户 A 在群里说「写个下周计划」，用户 B 回复「再加一条风控复盘」，同任务自动追加 patch。
-- [ ] 用户 C 在任务卡住时点击「我来确认」可接管写操作。
-- [ ] 两人同时给出矛盾 patch 时，Hermes 在群里发澄清卡片。
-- [ ] `feishu runs` 新增 `--patches` 查看运行图。
+- [x] 用户 A 在群里说「写个下周计划」，用户 B 回复「再加一条风控复盘」，同任务自动追加 patch（追加进 `intent_patches` 并合并到 observations）。
+- [x] 用户 C 在任务卡住时回复「我来确认」可接管写操作。
+- [x] 两人同时给出矛盾 patch 时，机器人在群里发送澄清卡片，列出冲突指令等待统一。
+- [x] `feishu runs --patches --task-id <id>` 查看任务补丁明细；`feishu runs --progress --task-id <id>` 发送进度简报卡片。
+- [x] 单元测试覆盖 patches 追加、合并、cancel 终止、我来确认接管、`_patch_action_from_text` 分类（`tests/test_intent_patch.py`）。
 
 ---
 
