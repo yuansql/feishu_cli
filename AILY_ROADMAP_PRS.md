@@ -223,12 +223,69 @@ python -c "from partner.ops.aily import alignment_score; print(alignment_score()
 
 ---
 
+## PR5：声明式定时触发器
+
+### 改动模块
+
+| 文件 | 改动 |
+|------|------|
+| `partner/core/triggers.py` | 新建：SQLite `triggers` 表，支持 `daily@HH:MM`、`weekly@DowHH:MM`、`cron@`、once；`add/list/del/toggle/poll_due/mark_trigger_run`；统一 `run_trigger()`。 |
+| `partner/ops/serve.py` | 主循环每 60 秒 `poll_due_triggers`，为到期触发器启动 Agent v2 任务并通知。 |
+| `partner/ops/triggers_cli.py` | 新建：`feishu triggers list/add/del/toggle/fire`。 |
+| `partner/ops/cli.py` | 注册 `triggers` 子命令。 |
+| `tests/test_triggers.py` | 新建：覆盖 schedule 解析、CRUD、`poll_due`、CLI。 |
+| `partner/ops/aily.py` | `triggers` 72→82。 |
+
+### 得分走势
+
+| PR | `alignment_score()` | 关键能力项 |
+|----|---------------------|-----------|
+| PR5 | 80.8 → 81.5 | `triggers` 72→82 |
+
+### 验收
+- [x] `feishu triggers add --goal "早报" --schedule daily@09:00` 可创建触发器。
+- [x] `feishu serve` 轮询并在到期时自动启动后台任务。
+- [x] once 触发器运行后自动停用。
+- [x] `bash scripts/check.sh` 全绿。
+
+---
+
+## PR6：条件触发器与统一事件日志审计
+
+### 改动模块
+
+| 文件 | 改动 |
+|------|------|
+| `partner/core/triggers.py` | 扩展 `source`：`schedule` / `message` / `webhook`；支持 `condition`（keywords、chat_type、sender_id、webhook_path）；统一 `trigger_event_log` 表与 `{record,lookup,list}_trigger_events`。 |
+| `partner/ops/serve.py` | 处理消息时调用 `_maybe_run_message_triggers`，对匹配消息启动 Agent v2 任务并去重。 |
+| `partner/ops/webhook.py` | 按子路径优先匹配 webhook 触发器，fallback 到通用 webhook 队列。 |
+| `partner/ops/triggers_cli.py` | 新增 `--source`、`--condition-*` 选项与 `feishu triggers log`。 |
+| `tests/test_triggers_conditions.py` | 新建：覆盖 message/webhook 匹配、事件日志、CRUD 校验。 |
+| `partner/ops/aily.py` | `triggers` 82→88，`observability` 88→90。 |
+
+### 得分走势
+
+| PR | `alignment_score()` | 关键能力项 |
+|----|---------------------|-----------|
+| PR6 | 81.5 → 82.0 | `triggers` 82→88，`observability` 88→90 |
+
+### 验收
+- [x] `feishu triggers add --source message --condition-keywords bug,缺陷 --goal "总结缺陷"` 可创建消息触发器。
+- [x] 群聊/私聊消息命中关键词后自动启动 Agent 任务，以 message_id 保证幂等。
+- [x] Webhook `POST /webhook/jira` 命中对应触发器，fallback 仍支持旧版通用 webhook。
+- [x] `feishu triggers log` 可审计最近触发事件。
+- [x] `bash scripts/check.sh` 全绿。
+
+---
+
 ## 执行顺序
 
 1. **PR1**（卡片确认闸）→ 立即提升体验，风险最低。
 2. **PR2**（群聊上下文）→ 为 PR3 铺垫，单独也能提升「懂上下文」体验。
 3. **PR3**（多人共享运行时）→ 架构改动最大，放到最后。
 4. **PR4**（对齐分刷新）→ 每个 PR 合并时同步更新。
+5. **PR5**（声明式定时触发器）→ schedule 触发器与 CLI。
+6. **PR6**（条件触发器与统一事件日志）→ message/webhook 条件触发、trigger_event_log 审计。
 
 ---
 

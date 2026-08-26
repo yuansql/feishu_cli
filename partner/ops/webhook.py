@@ -92,6 +92,56 @@ def enqueue_webhook_goal(
     }
 
 
+def _run_webhook_triggers(
+    subpath: str,
+    payload: dict[str, Any],
+    event_id: str = "",
+) -> list[dict[str, Any]]:
+    """Fire enabled webhook triggers matched by subpath.
+
+    Returns a list of result dicts (trigger_id, task_id) for each fired trigger.
+    Falls back to the default trigger (no path constraint) if no specific match.
+    """
+    from ..core.triggers import (
+        list_enabled_webhook_triggers,
+        match_webhook_trigger,
+        run_trigger,
+    )
+
+    triggered: list[dict[str, Any]] = []
+    candidates = list_enabled_webhook_triggers(path=subpath)
+    # If no specific-path trigger exists and subpath is empty, consider default
+    # webhook triggers. Otherwise use the candidates as-is.
+    if not candidates and not subpath:
+        candidates = list_enabled_webhook_triggers(path="")
+    matched_any = False
+    for spec in candidates:
+        matched = match_webhook_trigger(spec, subpath, payload)
+        if not matched:
+            continue
+        matched_any = True
+        external = event_id or f"webhook:{spec.get('id')}:{int(time.time())}"
+        try:
+            task, message = run_trigger(
+                spec,
+                source="webhook",
+                external_id=f"{external}:{spec.get('id')}",
+                matched_condition={"webhook_path": subpath, **matched},
+            )
+        except Exception:  # noqa: BLE001
+            continue
+        triggered.append(
+            {
+                "trigger_id": spec.get("id"),
+                "task_id": task["task_id"] if task else "",
+                "message": message,
+            }
+        )
+    if matched_any:
+        return triggered
+    return []
+
+
 class WebhookHandler(BaseHTTPRequestHandler):
     server_version = "FeishuPartnerWebhook/1"
 
@@ -116,7 +166,7 @@ class WebhookHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         path = urlsplit(self.path).path
-        if path not in {"/webhook", "/"}:
+        if not path.startswith("/webhook") and path != "/":
             self._json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"})
             return
         secret = _secret()
@@ -144,6 +194,18 @@ class WebhookHandler(BaseHTTPRequestHandler):
         if not isinstance(blob, dict):
             self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "invalid_payload"})
             return
+
+        # Try webhook triggers registered for this path first.
+        subpath = path[len("/webhook"):].lstrip("/")
+        triggered = _run_webhook_triggers(subpath, blob)
+        if triggered:
+            self._json(
+                HTTPStatus.ACCEPTED,
+                {"ok": True, "triggered": [t["trigger_id"] for t in triggered]},
+            )
+            return
+
+        # Fallback to legacy generic webhook enqueue.
         goal = str(blob.get("goal") or blob.get("text") or "").strip()
         if not goal:
             self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "goal_required"})

@@ -1,4 +1,4 @@
-"""CLI for declarative scheduled triggers."""
+"""CLI for declarative triggers: schedule, message-keyword, webhook."""
 
 from __future__ import annotations
 
@@ -10,8 +10,10 @@ from ..core.ids import P2P_CHAT_ID
 from ..core.triggers import (
     add_trigger,
     delete_trigger,
+    format_trigger_events_text,
     format_triggers_text,
     get_trigger,
+    list_trigger_events,
     list_triggers,
     mark_trigger_run,
     toggle_trigger,
@@ -22,11 +24,31 @@ def _with_id(parser: argparse.ArgumentParser, help_text: str) -> None:
     parser.add_argument("id", help=help_text)
 
 
+def _build_condition(args: argparse.Namespace) -> dict[str, str | list[str]]:
+    cond: dict[str, str | list[str]] = {}
+    keywords = getattr(args, "condition_keywords", "") or ""
+    if keywords:
+        cond["keywords"] = [k.strip() for k in str(keywords).split(",") if k.strip()]
+    chat_type = getattr(args, "condition_chat_type", "") or ""
+    if chat_type:
+        cond["chat_type"] = chat_type.strip().lower()
+    webhook_path = getattr(args, "condition_webhook_path", "") or ""
+    if webhook_path:
+        cond["webhook_path"] = webhook_path.strip().lstrip("/")
+    sender_id = getattr(args, "condition_sender_id", "") or ""
+    if sender_id:
+        cond["sender_id"] = [s.strip() for s in str(sender_id).split(",") if s.strip()]
+    return cond
+
+
 def _cmd_add(args: argparse.Namespace) -> int:
+    source = (args.source or "schedule").strip().lower()
     try:
         spec = add_trigger(
             goal=args.goal,
             schedule=args.schedule,
+            source=source,
+            condition=_build_condition(args),
             title=args.title or "",
             chat_id=args.chat_id or "",
             enabled=not args.disabled,
@@ -35,10 +57,10 @@ def _cmd_add(args: argparse.Namespace) -> int:
         print(f"创建失败：{exc}", file=sys.stderr)
         return 1
     status = "启用" if spec.get("enabled") else "停用"
-    print(
-        f"已创建触发器 {spec['id']} [{status}]：{spec['schedule']}"
-    )
+    print(f"已创建触发器 {spec['id']} [{status}] [{spec.get('source', 'schedule')}]")
     print(f"  目标：{spec['goal']}")
+    if spec.get("schedule"):
+        print(f"  计划：{spec['schedule']}")
     if spec.get("next_run_at"):
         print(f"  下次运行：{spec['next_run_at']}")
     return 0
@@ -97,10 +119,18 @@ def _cmd_fire(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_log(args: argparse.Namespace) -> int:
+    events = list_trigger_events(
+        trigger_id=args.trigger_id or "", limit=args.limit
+    )
+    print(format_trigger_events_text(events))
+    return 0
+
+
 def triggers_cli(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="feishu triggers",
-        description="声明式定时触发器：按 cron/daily/weekly/once 启动 Agent 任务。",
+        description="声明式触发器：按 schedule / message / webhook 启动 Agent 任务。",
     )
     sub = parser.add_subparsers(dest="subcmd")
 
@@ -113,8 +143,36 @@ def triggers_cli(argv: Sequence[str] | None = None) -> int:
     p_add.add_argument("--title", default="", help="触发器标题")
     p_add.add_argument("--goal", required=True, help="要执行的 Agent 目标")
     p_add.add_argument(
-        "--schedule", required=True,
-        help="触发计划，例如 daily@09:00 / weekly@Mon09:00 / cron@*/15 9 * * 1-5 / once@2026-08-27T09:00"
+        "--source",
+        default="schedule",
+        choices=["schedule", "message", "webhook"],
+        help="触发器类型 (schedule/message/webhook)",
+    )
+    p_add.add_argument(
+        "--schedule",
+        default="",
+        help="schedule 触发器的计划，例如 daily@09:00 / weekly@Mon09:00 / cron@*/15 9 * * 1-5 / once@2026-08-27T09:00",
+    )
+    p_add.add_argument(
+        "--condition-keywords",
+        default="",
+        help="message 触发器关键词，逗号分隔",
+    )
+    p_add.add_argument(
+        "--condition-chat-type",
+        default="",
+        choices=["group", "p2p", ""],
+        help="message 触发器限制聊天类型",
+    )
+    p_add.add_argument(
+        "--condition-sender-id",
+        default="",
+        help="message 触发器限制发送者 open_id，逗号分隔",
+    )
+    p_add.add_argument(
+        "--condition-webhook-path",
+        default="",
+        help="webhook 触发器路径，如 jira -> /webhook/jira",
     )
     p_add.add_argument("--chat-id", default="", help="目标聊天 ID，默认私聊")
     p_add.add_argument("--disabled", action="store_true", help="创建后先停用")
@@ -133,6 +191,10 @@ def triggers_cli(argv: Sequence[str] | None = None) -> int:
     p_fire = sub.add_parser("fire", help="立即手动触发一次")
     _with_id(p_fire, "触发器 ID")
 
+    p_log = sub.add_parser("log", help="查看触发事件日志")
+    p_log.add_argument("--trigger-id", default="", help="按触发器 ID 过滤")
+    p_log.add_argument("--limit", type=int, default=20, help="最多返回条数")
+
     args = parser.parse_args(argv or [])
     dispatch: dict[str, Callable[[argparse.Namespace], int]] = {
         "list": _cmd_list,
@@ -140,6 +202,7 @@ def triggers_cli(argv: Sequence[str] | None = None) -> int:
         "del": _cmd_delete,
         "toggle": _cmd_toggle,
         "fire": _cmd_fire,
+        "log": _cmd_log,
     }
     handler = dispatch.get(args.subcmd)
     if handler is None:

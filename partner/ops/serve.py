@@ -276,6 +276,12 @@ def _handle_line(line: str, seen: set[str]) -> None:
         return
     if _maybe_append_intent_patch(msg):
         return
+    if _maybe_run_message_triggers(msg):
+        # Message was consumed by a keyword trigger. Still ingest context but
+        # avoid duplicate dispatching.
+        if msg.sender_type in {"", "user"}:
+            chat_context.ingest_inbound_message(msg)
+        return
     if msg.sender_type in {"", "user"}:
         chat_context.ingest_inbound_message(msg)
     if msg.message_id and msg.message_id in seen:
@@ -680,7 +686,7 @@ def _maybe_run_triggers() -> None:
         return
     _last_trigger_poll = now_mono
     try:
-        from ..core.triggers import mark_trigger_run, poll_due_triggers
+        from ..core.triggers import poll_due_triggers, run_trigger
 
         due = poll_due_triggers()
     except Exception as exc:
@@ -693,18 +699,57 @@ def _maybe_run_triggers() -> None:
             str(spec.get("chat_id") or "").strip() or P2P_CHAT_ID
         )
         title = str(spec.get("title") or goal[:30] or "触发器").strip()
+        eid = f"{trigger_id}:{spec.get('next_run_at') or ''}"
         try:
-            start_agent_task(goal, chat_id, background=True)
-            mark_trigger_run(trigger_id)
+            task, message = run_trigger(
+                spec,
+                source="schedule",
+                external_id=eid,
+                matched_condition={"next_run_at": spec.get("next_run_at")},
+            )
         except Exception as exc:
             _log(f"trigger-run fail {trigger_id}: " + str(exc)[:160])
             continue
         notify = f"⏰ 触发器「{title}」已启动：{goal}"
+        if not task:
+            _log(f"trigger-run skip {trigger_id}: {message}")
+            continue
         try:
             result = send_checked(chat_id, notify, as_identity="bot")
             _log("trigger-notify: " + result + " " + trigger_id)
         except Exception as exc:
             _log(f"trigger-notify fail {trigger_id}: " + str(exc)[:160])
+
+
+def _maybe_run_message_triggers(msg: InboundMessage) -> bool:
+    """Fire message-keyword triggers. Returns True if any fired."""
+    from ..core.triggers import (
+        list_enabled_message_triggers,
+        match_message_trigger,
+        run_trigger,
+    )
+
+    fired_any = False
+    for spec in list_enabled_message_triggers():
+        matched = match_message_trigger(spec, msg)
+        if not matched:
+            continue
+        eid = f"msg:{msg.message_id or ''}:{spec.get('id')}"
+        try:
+            task, _ = run_trigger(
+                spec,
+                source="message",
+                external_id=eid,
+                matched_condition=matched,
+            )
+            if task:
+                fired_any = True
+                _log(
+                    f"trigger-message: {spec.get('id')} matched {matched.get('keywords')}"
+                )
+        except Exception as exc:
+            _log(f"trigger-message fail {spec.get('id')}: " + str(exc)[:160])
+    return fired_any
 
 
 def _spawn_consume(

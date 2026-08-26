@@ -68,6 +68,27 @@ def _ensure_table(conn: Any) -> None:
         "CREATE INDEX IF NOT EXISTS idx_triggers_next ON triggers(enabled, next_run_at)"
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_triggers_id ON triggers(id)")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS trigger_event_log (
+            id TEXT PRIMARY KEY,
+            trigger_id TEXT NOT NULL DEFAULT '',
+            source TEXT NOT NULL,
+            external_id TEXT NOT NULL,
+            task_id TEXT NOT NULL DEFAULT '',
+            matched_condition_json TEXT NOT NULL DEFAULT '{}',
+            status TEXT NOT NULL DEFAULT 'fired',
+            fired_at TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_trigger_log_trigger ON trigger_event_log(trigger_id, fired_at)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_trigger_log_external ON trigger_event_log(source, external_id)"
+    )
 
 
 def _parse_time(hour: int, minute: int) -> tuple[int, int]:
@@ -309,31 +330,70 @@ def _row_to_spec(row: Any) -> dict[str, Any]:
     return spec
 
 
+def _validate_spec_fields(
+    source: str,
+    condition: dict[str, Any],
+    schedule: str,
+) -> None:
+    source = (source or "schedule").strip().lower()
+    if source not in {"schedule", "message", "webhook"}:
+        raise ValueError("source 必须是 schedule、message 或 webhook")
+    if source == "schedule":
+        if not schedule:
+            raise ValueError("schedule 触发器必须提供 --schedule")
+    else:
+        # Message/webhook triggers do not have a next_run_at schedule.
+        if schedule:
+            raise ValueError(f"{source} 触发器不需要 --schedule")
+        if source == "message":
+            keywords = condition.get("keywords") or []
+            if not keywords:
+                raise ValueError("message 触发器至少需要 --condition-keywords")
+        elif source == "webhook":
+            path = (condition.get("webhook_path") or "").strip()
+            if not path:
+                raise ValueError("webhook 触发器必须提供 --condition-webhook-path")
+
+
 def add_trigger(
     *,
     goal: str,
-    schedule: str,
+    schedule: str = "",
+    source: str = "schedule",
+    condition: dict[str, Any] | None = None,
     title: str = "",
     chat_id: str = "",
     enabled: bool = True,
 ) -> dict[str, Any]:
-    """Add a new trigger and return its spec."""
+    """Add a new trigger and return its spec.
+
+    ``source`` may be schedule, message, or webhook. ``condition`` holds
+    source-specific matching rules (keywords, chat_type, webhook_path, ...).
+    """
     cleaned_goal = (goal or "").strip()
     if not cleaned_goal:
         raise ValueError("goal 不能为空")
-    spec = parse_schedule(schedule)
+    cond = dict(condition) if condition else {}
+    source = (source or "schedule").strip().lower()
+    _validate_spec_fields(source, cond, schedule)
     now = _now()
-    next_at = next_run(spec, after=now)
-    if next_at is None and spec["type"] == "once":
-        raise ValueError("一次性触发器必须设置在未来")
+    schedule_spec: dict[str, Any] | None = None
+    next_at: datetime | None = None
+    if source == "schedule":
+        schedule_spec = parse_schedule(schedule)
+        next_at = next_run(schedule_spec, after=now)
+        if next_at is None and schedule_spec["type"] == "once":
+            raise ValueError("一次性触发器必须设置在未来")
     trigger_id = _new_id()
     body: dict[str, Any] = {
         "id": trigger_id,
         "title": (title or cleaned_goal[:30]).strip(),
         "goal": cleaned_goal,
         "chat_id": (chat_id or "").strip(),
+        "source": source,
+        "condition": cond,
         "schedule": schedule,
-        "schedule_spec": spec,
+        "schedule_spec": schedule_spec,
     }
     with _connect() as conn:
         _ensure_table(conn)
@@ -403,6 +463,16 @@ def delete_trigger(trigger_id: str) -> bool:
     return cur.rowcount > 0
 
 
+def _recompute_next_run(spec: dict[str, Any], now: datetime) -> str:
+    schedule = spec.get("schedule_spec")
+    if not schedule and spec.get("source") == "schedule":
+        schedule = parse_schedule(spec.get("schedule", ""))
+    if schedule:
+        nxt = next_run(schedule, after=now)
+        return _iso(nxt) if nxt else ""
+    return ""
+
+
 def toggle_trigger(trigger_id: str, enabled: bool) -> dict[str, Any] | None:
     tid = (trigger_id or "").strip()
     if not tid:
@@ -416,15 +486,9 @@ def toggle_trigger(trigger_id: str, enabled: bool) -> dict[str, Any] | None:
         if not row:
             return None
         spec = _row_to_spec(row)
+        next_at = ""
         if enabled:
-            # Recompute next run from now when enabling.
-            schedule = spec.get("schedule_spec") or parse_schedule(
-                spec.get("schedule", "")
-            )
-            nxt = next_run(schedule, after=now)
-            next_at = _iso(nxt) if nxt else ""
-        else:
-            next_at = ""
+            next_at = _recompute_next_run(spec, now)
         conn.execute(
             """
             UPDATE triggers
@@ -466,15 +530,18 @@ def mark_trigger_run(
     spec = get_trigger(tid)
     if not spec:
         return None
-    schedule = spec.get("schedule_spec") or parse_schedule(
-        spec.get("schedule", "")
-    )
-    if schedule["type"] == "once":
+    schedule = spec.get("schedule_spec")
+    if not schedule and spec.get("source") == "schedule":
+        schedule = parse_schedule(spec.get("schedule", ""))
+    if schedule and schedule.get("type") == "once":
         next_at = ""
         enabled = 0
-    else:
+    elif schedule:
         nxt = next_run(schedule, after=now)
         next_at = _iso(nxt) if nxt else ""
+        enabled = 1 if spec.get("enabled") else 0
+    else:
+        next_at = ""
         enabled = 1 if spec.get("enabled") else 0
     run_count = int(spec.get("run_count") or 0) + 1
     with _connect() as conn:
@@ -497,6 +564,238 @@ def mark_trigger_run(
     return get_trigger(tid)
 
 
+def run_trigger(
+    spec: dict[str, Any],
+    *,
+    source: str = "schedule",
+    external_id: str = "",
+    matched_condition: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any] | None, str]:
+    """Start an Agent v2 task for a trigger and log the event.
+
+    Returns (task, message). Idempotent by (source, external_id).
+    """
+    from ..runtime.agent.service import start_agent_task
+
+    goal = str(spec.get("goal") or "").strip()
+    chat_id = (spec.get("chat_id") or "").strip()
+    title = str(spec.get("title") or goal or "触发器").strip()
+    eid = (external_id or "").strip()
+    if eid:
+        existing = lookup_trigger_event(source=source, external_id=eid)
+        if existing:
+            return None, f"触发事件已存在（{eid}），跳过。"
+    message = start_agent_task(goal, chat_id, background=True)
+    task_id = ""
+    for token in message.replace("）", " ").replace("（", " ").split():
+        if len(token) == 12 and all(c in "0123456789abcdef" for c in token):
+            task_id = token
+            break
+    record_trigger_event(
+        trigger_id=spec.get("id") or "",
+        source=source,
+        external_id=eid,
+        task_id=task_id,
+        matched_condition=matched_condition or {},
+        status="fired",
+    )
+    # Update run_count / last_run_at even for event triggers.
+    mark_trigger_run(spec.get("id") or "")
+    return {"goal": goal, "chat_id": chat_id, "task_id": task_id}, message
+
+
+def record_trigger_event(
+    *,
+    trigger_id: str,
+    source: str,
+    external_id: str,
+    task_id: str,
+    matched_condition: dict[str, Any] | None = None,
+    status: str = "fired",
+) -> None:
+    """Write a trigger event to the audit log."""
+    src = (source or "").strip()
+    eid = (external_id or "").strip()
+    if not src or not eid:
+        return
+    now = _now()
+    with _connect() as conn:
+        _ensure_table(conn)
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO trigger_event_log
+                (id, trigger_id, source, external_id, task_id,
+                 matched_condition_json, status, fired_at, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                uuid.uuid4().hex,
+                trigger_id or "",
+                src,
+                eid,
+                task_id or "",
+                json.dumps(matched_condition or {}, ensure_ascii=False),
+                status,
+                _iso(now),
+                _iso(now),
+            ),
+        )
+
+
+def lookup_trigger_event(*, source: str, external_id: str) -> dict[str, Any] | None:
+    src = (source or "").strip()
+    eid = (external_id or "").strip()
+    if not src or not eid:
+        return None
+    with _connect() as conn:
+        _ensure_table(conn)
+        row = conn.execute(
+            "SELECT * FROM trigger_event_log WHERE source = ? AND external_id = ?",
+            (src, eid),
+        ).fetchone()
+    if not row:
+        return None
+    return {
+        "id": str(row["id"]),
+        "trigger_id": str(row["trigger_id"]),
+        "source": str(row["source"]),
+        "external_id": str(row["external_id"]),
+        "task_id": str(row["task_id"]),
+        "status": str(row["status"]),
+        "fired_at": str(row["fired_at"]),
+    }
+
+
+def list_trigger_events(
+    *, trigger_id: str = "", limit: int = 20
+) -> list[dict[str, Any]]:
+    tid = (trigger_id or "").strip()
+    cap = max(1, min(int(limit), 100))
+    with _connect() as conn:
+        _ensure_table(conn)
+        if tid:
+            rows = conn.execute(
+                """
+                SELECT * FROM trigger_event_log
+                WHERE trigger_id = ?
+                ORDER BY fired_at DESC, created_at DESC, id DESC
+                LIMIT ?
+                """,
+                (tid, cap),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT * FROM trigger_event_log
+                ORDER BY fired_at DESC, created_at DESC, id DESC
+                LIMIT ?
+                """,
+                (cap,),
+            ).fetchall()
+    return [
+        {
+            "id": str(row["id"]),
+            "trigger_id": str(row["trigger_id"]),
+            "source": str(row["source"]),
+            "external_id": str(row["external_id"]),
+            "task_id": str(row["task_id"]),
+            "status": str(row["status"]),
+            "fired_at": str(row["fired_at"]),
+        }
+        for row in rows
+    ]
+
+
+def format_trigger_events_text(events: list[dict[str, Any]]) -> str:
+    if not events:
+        return "暂无触发事件日志。"
+    lines = [f"最近触发事件 {len(events)} 条：", ""]
+    for e in events:
+        lines.append(
+            f"- {e['fired_at']} · [{e['source']}] trigger={e['trigger_id']} task={e['task_id']}"
+        )
+    return "\n".join(lines)
+
+
+def match_message_trigger(
+    spec: dict[str, Any], msg: Any
+) -> dict[str, Any] | None:
+    """Return matched condition dict if the message satisfies the trigger."""
+    if spec.get("source") != "message":
+        return None
+    if not spec.get("enabled"):
+        return None
+    condition = spec.get("condition") or {}
+    text = str(getattr(msg, "text", "") or "").strip()
+    chat_type = str(getattr(msg, "chat_type", "") or "").strip()
+    sender_id = str(getattr(msg, "sender_id", "") or "").strip()
+    sender_type = str(getattr(msg, "sender_type", "") or "").strip()
+    if sender_type in {"app", "bot"}:
+        return None
+    allowed_chat = (condition.get("chat_type") or "*").strip().lower()
+    if allowed_chat and allowed_chat != "*" and chat_type != allowed_chat:
+        return None
+    allowed_senders = condition.get("sender_id") or []
+    if isinstance(allowed_senders, str):
+        allowed_senders = [allowed_senders]
+    if allowed_senders and sender_id not in allowed_senders:
+        return None
+    keywords = condition.get("keywords") or []
+    if isinstance(keywords, str):
+        keywords = [keywords]
+    lowered = text.lower()
+    matched: list[str] = []
+    for kw in keywords:
+        kw = str(kw).strip().lower()
+        if not kw:
+            continue
+        if kw in lowered:
+            matched.append(kw)
+    if not matched:
+        return None
+    return {"keywords": matched, "chat_type": chat_type, "sender_id": sender_id}
+
+
+def match_webhook_trigger(
+    spec: dict[str, Any], path: str, payload: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Return matched condition if the webhook payload satisfies the trigger."""
+    if spec.get("source") != "webhook":
+        return None
+    if not spec.get("enabled"):
+        return None
+    condition = spec.get("condition") or {}
+    expected = (condition.get("webhook_path") or "").strip().lstrip("/")
+    req_path = (path or "").strip().lstrip("/")
+    if expected and expected != req_path:
+        return None
+    return {"webhook_path": req_path}
+
+
+def list_enabled_message_triggers() -> list[dict[str, Any]]:
+    return [
+        t for t in list_triggers(enabled_only=True) if t.get("source") == "message"
+    ]
+
+
+def list_enabled_webhook_triggers(
+    path: str = "",
+) -> list[dict[str, Any]]:
+    specs = [
+        t for t in list_triggers(enabled_only=True) if t.get("source") == "webhook"
+    ]
+    if not path:
+        return specs
+    req_path = path.strip().lstrip("/")
+    out: list[dict[str, Any]] = []
+    for spec in specs:
+        cond = spec.get("condition") or {}
+        expected = (cond.get("webhook_path") or "").strip().lstrip("/")
+        if not expected or expected == req_path:
+            out.append(spec)
+    return out
+
+
 def format_triggers_text(triggers: list[dict[str, Any]]) -> str:
     if not triggers:
         return "暂无触发器。使用 `feishu triggers add --help` 创建。"
@@ -505,14 +804,26 @@ def format_triggers_text(triggers: list[dict[str, Any]]) -> str:
         status = "启用" if t.get("enabled") else "停用"
         title = str(t.get("title") or t.get("goal") or "(无标题)")[:30]
         goal = str(t.get("goal") or "")[:40]
+        source = t.get("source") or "schedule"
         next_at = t.get("next_run_at") or "—"
         last_at = t.get("last_run_at") or "从未"
+        cond = t.get("condition") or {}
+        cond_text = ""
+        if source == "message" and cond.get("keywords"):
+            cond_text = f" · 关键词：{','.join(str(k) for k in cond['keywords'])}"
+        elif source == "webhook" and cond.get("webhook_path"):
+            cond_text = f" · 路径：/{cond['webhook_path']}"
         lines.append(
-            f"- {t.get('id')} · [{status}] {title}"
+            f"- {t.get('id')} · [{status}] [{source}] {title}{cond_text}"
         )
-        lines.append(
-            f"  计划：{t.get('schedule')} · 下次：{next_at} · 上次：{last_at} · 已运行 {t.get('run_count', 0)} 次"
-        )
+        if source == "schedule":
+            lines.append(
+                f"  计划：{t.get('schedule')} · 下次：{next_at} · 上次：{last_at} · 已运行 {t.get('run_count', 0)} 次"
+            )
+        else:
+            lines.append(
+                f"  上次：{last_at} · 已运行 {t.get('run_count', 0)} 次"
+            )
         if goal:
             lines.append(f"  目标：{goal}")
     return "\n".join(lines)
