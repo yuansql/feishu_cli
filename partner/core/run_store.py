@@ -13,6 +13,7 @@ from typing import Any, Callable
 CN_TZ = timezone(timedelta(hours=8))
 LEASE_TTL_SEC = 120
 _TERMINAL = frozenset({"done", "failed", "cancelled"})
+APPROVAL_TIMEOUT_SEC = 300  # 5 minutes default approval window
 
 
 def db_path() -> Path:
@@ -65,9 +66,27 @@ def init_db() -> None:
                 updated_at TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status, updated_at);
+
+            CREATE TABLE IF NOT EXISTS approvals (
+                task_id TEXT PRIMARY KEY,
+                message_id TEXT NOT NULL UNIQUE,
+                tool TEXT NOT NULL,
+                args_json TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                requested_at TEXT NOT NULL,
+                resolved_at TEXT,
+                expires_at TEXT NOT NULL DEFAULT '',
+                operator_id TEXT,
+                token TEXT NOT NULL,
+                FOREIGN KEY(task_id) REFERENCES runs(task_id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_approvals_message ON approvals(message_id);
+            CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status, requested_at);
+            CREATE INDEX IF NOT EXISTS idx_approvals_expires ON approvals(status, expires_at);
             """
         )
         conn.commit()
+        _migrate_approvals(conn)
 
 
 def _now() -> datetime:
@@ -76,6 +95,34 @@ def _now() -> datetime:
 
 def _iso(now: datetime | None = None) -> str:
     return (now or _now()).isoformat(timespec="seconds")
+
+
+def _migrate_approvals(conn: sqlite3.Connection) -> None:
+    """Ensure the approvals table has an expires_at column."""
+    columns = {
+        str(row[1]) for row in conn.execute(
+            "PRAGMA table_info(approvals)"
+        ).fetchall()
+    }
+    if "expires_at" in columns:
+        return
+    conn.execute(
+        "ALTER TABLE approvals ADD COLUMN expires_at TEXT NOT NULL DEFAULT ''"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_approvals_expires ON approvals(status, expires_at)"
+    )
+    # Older rows without an explicit expiry are considered to expire one day
+    # after they were requested so they do not sit pending forever, while
+    # still giving the user a reasonable grace period to update the schema.
+    conn.execute(
+        """
+        UPDATE approvals
+        SET expires_at = datetime(requested_at, '+1 day')
+        WHERE expires_at = '' AND status = 'pending'
+        """
+    )
+    conn.commit()
 
 
 def record_trigger(
@@ -303,6 +350,197 @@ def apply_recovered_leases(
         save(task)
         n += 1
     return n
+
+
+def request_approval(
+    *,
+    task_id: str,
+    message_id: str,
+    tool: str,
+    args: dict[str, Any],
+    operator_id: str = "",
+    token: str = "",
+    timeout_sec: int = APPROVAL_TIMEOUT_SEC,
+    now: datetime | None = None,
+) -> bool:
+    """Record a pending approval. Returns True if newly created, False if already exists."""
+    init_db()
+    tid = (task_id or "").strip()
+    mid = (message_id or "").strip()
+    if not tid or not mid:
+        return False
+    stamp = now or _now()
+    requested_at = _iso(stamp)
+    timeout = int(timeout_sec)
+    if timeout < 0:
+        seconds = 0
+    else:
+        seconds = max(30, timeout)
+    expires_at = _iso(stamp + timedelta(seconds=seconds))
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT task_id FROM approvals WHERE message_id = ?",
+            (mid,),
+        ).fetchone()
+        if row:
+            return False
+        conn.execute(
+            """
+            INSERT INTO approvals (
+                task_id, message_id, tool, args_json, status,
+                requested_at, resolved_at, expires_at, operator_id, token
+            ) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)
+            ON CONFLICT(task_id) DO UPDATE SET
+                message_id = excluded.message_id,
+                tool = excluded.tool,
+                args_json = excluded.args_json,
+                status = 'pending',
+                requested_at = excluded.requested_at,
+                resolved_at = NULL,
+                operator_id = excluded.operator_id,
+                token = excluded.token
+            """,
+            (
+                tid,
+                mid,
+                (tool or "").strip(),
+                json.dumps(args or {}, ensure_ascii=False),
+                requested_at,
+                None,
+                expires_at,
+                (operator_id or "").strip(),
+                (token or "").strip(),
+            ),
+        )
+        conn.commit()
+    return True
+
+
+def _resolve_approval(
+    message_id: str,
+    status: str,
+    *,
+    operator_id: str = "",
+    token: str = "",
+    now: datetime | None = None,
+) -> dict[str, Any] | None:
+    """Resolve an approval if it is pending and token matches. Returns resolved row or None."""
+    init_db()
+    mid = (message_id or "").strip()
+    if not mid or status not in {"approved", "declined", "expired"}:
+        return None
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM approvals WHERE message_id = ?",
+            (mid,),
+        ).fetchone()
+        if not row:
+            return None
+        current_status = str(row["status"] or "")
+        if current_status == status:
+            return dict(row)
+        if current_status != "pending":
+            return None
+        stored_token = str(row["token"] or "")
+        if stored_token and stored_token != (token or "").strip():
+            return None
+        ts = _iso(now or _now())
+        conn.execute(
+            """
+            UPDATE approvals
+            SET status = ?, resolved_at = ?, operator_id = ?
+            WHERE message_id = ?
+            """,
+            (
+                status,
+                ts,
+                (operator_id or "").strip(),
+                mid,
+            ),
+        )
+        conn.commit()
+        refreshed = conn.execute(
+            "SELECT * FROM approvals WHERE message_id = ?",
+            (mid,),
+        ).fetchone()
+        return dict(refreshed) if refreshed else None
+
+
+def approve_approval(
+    message_id: str,
+    *,
+    operator_id: str = "",
+    token: str = "",
+    now: datetime | None = None,
+) -> dict[str, Any] | None:
+    """Approve a pending approval."""
+    return _resolve_approval(
+        message_id, "approved", operator_id=operator_id, token=token, now=now
+    )
+
+
+def decline_approval(
+    message_id: str,
+    *,
+    operator_id: str = "",
+    token: str = "",
+    now: datetime | None = None,
+) -> dict[str, Any] | None:
+    """Decline a pending approval."""
+    return _resolve_approval(
+        message_id, "declined", operator_id=operator_id, token=token, now=now
+    )
+
+
+def get_approval(message_id: str) -> dict[str, Any] | None:
+    init_db()
+    mid = (message_id or "").strip()
+    if not mid:
+        return None
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM approvals WHERE message_id = ?",
+            (mid,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def get_approval_by_task(task_id: str) -> dict[str, Any] | None:
+    init_db()
+    tid = (task_id or "").strip()
+    if not tid:
+        return None
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM approvals WHERE task_id = ? ORDER BY requested_at DESC LIMIT 1",
+            (tid,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def expire_stale_approvals(*, now: datetime | None = None) -> list[dict[str, Any]]:
+    """Mark pending approvals past their expiry as expired. Returns affected rows."""
+    init_db()
+    cutoff = _iso(now or _now())
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM approvals
+            WHERE status = 'pending' AND expires_at != '' AND expires_at <= ?
+            """,
+            (cutoff,),
+        ).fetchall()
+        out = [dict(r) for r in rows]
+        conn.execute(
+            """
+            UPDATE approvals
+            SET status = 'expired', resolved_at = ?
+            WHERE status = 'pending' AND expires_at != '' AND expires_at <= ?
+            """,
+            (cutoff, cutoff),
+        )
+        conn.commit()
+    return out
 
 
 def list_runs_text(*, limit: int = 12) -> str:

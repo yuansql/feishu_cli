@@ -15,6 +15,8 @@ class CardAction:
     act: str
     key: str
     token: str = ""
+    task_id: str = ""
+    message_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -73,13 +75,16 @@ def extract_card_action(payload: Any) -> CardAction | None:
             loaded = {}
         if isinstance(loaded, dict):
             value = loaded
+    raw_token = str(value.get("token") or data.get("token") or "")
     return CardAction(
         chat_id=str(data.get("chat_id") or ""),
         operator_id=str(data.get("operator_id") or ""),
         event_id=str(data.get("event_id") or data.get("message_id") or ""),
         act=str(value.get("act") or ""),
         key=str(value.get("key") or ""),
-        token=str(data.get("token") or ""),
+        token=raw_token,
+        task_id=str(value.get("task_id") or ""),
+        message_id=str(value.get("message_id") or data.get("message_id") or ""),
     )
 
 

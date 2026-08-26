@@ -95,8 +95,14 @@ def _format_result(task: dict[str, Any]) -> str:
         lines.append("")
         lines.append(summary)
     if status == "blocked":
+        approval = task.get("pending_write", {}).get("approval")
+        card_hint = (
+            "已发送确认卡片，请点击确认或取消。"
+            if approval and approval.get("message_id")
+            else "写操作待确认：回复「确认写入」。也可「取消任务」。"
+        )
         lines.append("")
-        lines.append("写操作待确认：回复「确认写入」。也可「取消任务」。")
+        lines.append(card_hint)
     return "\n".join(lines).strip()
 
 
@@ -176,7 +182,67 @@ def _run_task(task: dict[str, Any]) -> str:
         else None,
     )
     task = _apply_loop_result(task, final)
+    if str(task.get("status")) == "blocked" and task.get("pending_write"):
+        _maybe_request_approval(task)
     return _format_result(task)
+
+
+def _maybe_request_approval(task: dict[str, Any]) -> None:
+    """If a task is blocked on a write, send an interactive approval card."""
+    pending = task.get("pending_write")
+    if not isinstance(pending, dict):
+        return
+    # Avoid duplicate requests if a card was already sent.
+    existing = pending.get("approval", {})
+    if existing and existing.get("message_id"):
+        return
+    chat_id = str(task.get("chat_id") or "").strip()
+    task_id = str(task.get("id") or "").strip()
+    if not chat_id or not task_id:
+        return
+    tool = str(pending.get("tool") or "").strip()
+    args = pending.get("args") if isinstance(pending.get("args"), dict) else {}
+    if not tool:
+        return
+    message_id = f"apv_{uuid.uuid4().hex[:16]}"
+    token = uuid.uuid4().hex
+    from ...core.run_store import request_approval
+    from ...office.approval_card import approval_card_payload
+    from ...actions import send_card
+
+    ok = request_approval(
+        task_id=task_id,
+        message_id=message_id,
+        tool=tool,
+        args=args,
+        token=token,
+    )
+    if not ok:
+        return
+    card = approval_card_payload(
+        tool=tool,
+        args=args,
+        task_id=task_id,
+        message_id=message_id,
+        token=token,
+    )
+    result = send_card(chat_id, card, as_identity="bot")
+    sent_ok = (result or "").strip() == "已发送。"
+    pending["approval"] = {
+        "message_id": message_id,
+        "requested_at": _now(),
+        "token": token,
+        "sent_ok": sent_ok,
+    }
+    task["pending_write"] = pending
+    save_task(task)
+    emit_trace(
+        task_id,
+        "agent_v2.approval_requested",
+        tool=tool,
+        message_id=message_id,
+        sent_ok=sent_ok,
+    )
 
 
 def resume_agent_task(task_id: str) -> str:
@@ -213,6 +279,49 @@ def confirm_agent_writes(chat_id: str) -> str:
     save_task(task)
     emit_trace(str(task["id"]), "agent_v2.confirm_writes")
     return _run_task(task)
+
+
+def confirm_agent_writes_by_message(message_id: str) -> dict[str, Any]:
+    """Resume a blocked task after a card approval callback.
+
+    Returns {"ok": bool, "task": task_or_none, "error": str}.
+    """
+    from ...core.run_store import get_approval
+
+    approval = get_approval(message_id)
+    if not approval:
+        return {"ok": False, "task": None, "error": "找不到对应审批记录。"}
+    task_id = str(approval.get("task_id") or "").strip()
+    task = load_task(task_id) if task_id else None
+    if not task or task.get("runtime") != RUNTIME:
+        return {"ok": False, "task": None, "error": "关联的 Agent 任务不存在。"}
+    if str(task.get("status")) != "blocked":
+        return {"ok": False, "task": task, "error": "任务当前不在确认闸上。"}
+    task["allow_writes"] = True
+    task["status"] = "running"
+    task["pending_write"] = None
+    save_task(task)
+    emit_trace(task_id, "agent_v2.confirm_writes_by_card", message_id=message_id)
+    return {"ok": True, "task": task, "error": ""}
+
+
+def decline_agent_writes_by_message(message_id: str) -> dict[str, Any]:
+    """Cancel a blocked task after a card decline callback."""
+    from ...core.run_store import get_approval
+
+    approval = get_approval(message_id)
+    if not approval:
+        return {"ok": False, "task": None, "error": "找不到对应审批记录。"}
+    task_id = str(approval.get("task_id") or "").strip()
+    task = load_task(task_id) if task_id else None
+    if not task or task.get("runtime") != RUNTIME:
+        return {"ok": False, "task": None, "error": "关联的 Agent 任务不存在。"}
+    task["status"] = "cancelled"
+    task["summary"] = (task.get("summary") or "") + "\n（用户取消写入）"
+    task["pending_write"] = None
+    save_task(task)
+    emit_trace(task_id, "agent_v2.decline_writes_by_card", message_id=message_id)
+    return {"ok": True, "task": task, "error": ""}
 
 
 def status_agent_task(chat_id: str) -> str:

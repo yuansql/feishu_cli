@@ -5,5 +5,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 cd "$ROOT"
-python3 -m unittest discover -s tests -q
-exec "$ROOT/bin/feishu" smoke "$@"
+# Use project venv if it exists, otherwise fall back to system python3.
+VENV="${FEISHU_PARTNER_VENV:-$HOME/.workbuddy/binaries/python/envs/feishu_cli}"
+if [ -x "$VENV/bin/python3" ]; then
+    PYTHON="$VENV/bin/python3"
+else
+    PYTHON="python3"
+fi
+$PYTHON -m unittest discover -s tests -q
+exec "$PYTHON" -u -m partner smoke "$@"

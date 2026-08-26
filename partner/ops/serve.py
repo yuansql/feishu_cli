@@ -12,10 +12,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from ..core.ack import ACK_EMOJI, ack_line, should_ack_text
-from ..actions import add_reaction, dispatch, send_style_card, send_text
+from ..actions import add_reaction, dispatch, send_card, send_style_card, send_text
 from ..office.brief import already_pushed, push_brief
 from ..core.events import InboundMessage, extract_card_action, extract_inbound_message, should_reply
 from ..core.ids import BOT_OPEN_ID, P2P_CHAT_ID, USER_OPEN_ID, identity_hint, identity_ready, reload_identity
+from ..core.run_store import expire_stale_approvals, load_run
+from ..office.approval_card import approval_expired_card
 from ..office.followup import (
     apply_action,
     format_assign_push,
@@ -39,6 +41,10 @@ from ..compose.llm import (
 )
 from ..routing.resolved import confirm_card
 from ..runtime.runner import ensure_worker
+from ..runtime.agent.service import (
+    confirm_agent_writes_by_message,
+    decline_agent_writes_by_message,
+)
 from ..office.watch import consider, format_watch_push
 
 CN_TZ = timezone(timedelta(hours=8))
@@ -48,6 +54,8 @@ ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 _FU_ACTS = frozenset({"fu_done", "fu_snooze", "fu_ignore"})
 _last_bitable_scan = 0.0
 _last_chat_sync = 0.0
+_last_approval_expire_check = 0.0
+_APPROVAL_EXPIRE_INTERVAL_SEC = 60.0
 
 
 def _log(line: str) -> None:
@@ -213,6 +221,12 @@ def _handle_line(line: str, seen: set[str]) -> None:
             result = send_checked(act.chat_id or P2P_CHAT_ID, reply, as_identity="bot")
             _log("followup-card: " + result + " " + reply)
             return
+        if act.act == "approve" or (act.act == "done" and act.task_id):
+            _handle_approval_card(act, approved=True)
+            return
+        if act.act == "decline":
+            _handle_approval_card(act, approved=False)
+            return
         if act.act != "done" or not act.key:
             _log("card skip value")
             return
@@ -250,6 +264,73 @@ def _handle_line(line: str, seen: set[str]) -> None:
     if decision.notify and wrote:
         result = send_checked(P2P_CHAT_ID, format_watch_push(decision.item), as_identity="bot")
         _log("watch-push: " + result)
+
+
+def _handle_approval_card(act: Any, *, approved: bool) -> None:
+    """Process approve/decline card callbacks for Agent write operations."""
+    from ..core.run_store import approve_approval, decline_approval
+    from ..office.approval_card import approval_result_card
+    from ..actions import send_card
+
+    message_id = (act.message_id or "").strip()
+    token = (act.token or "").strip()
+    if not message_id:
+        _log("approval-card: missing message_id")
+        return
+    operator_id = (act.operator_id or "").strip()
+    if approved:
+        resolved = approve_approval(
+            message_id, operator_id=operator_id, token=token
+        )
+        if not resolved:
+            _log(f"approval-card: approve failed or already resolved mid={message_id}")
+            send_checked(
+                act.chat_id or P2P_CHAT_ID,
+                "这条确认已经处理过了，无法重复确认。",
+                as_identity="bot",
+            )
+            return
+        result = confirm_agent_writes_by_message(message_id)
+        tool_name = str(resolved.get("tool") or "")
+        if result.get("ok") and result.get("task"):
+            reply_task = _run_resumed_task(result["task"])
+            detail = reply_task or f"工具 `{tool_name}` 已执行。"
+        else:
+            detail = result.get("error") or "确认后任务未能继续。"
+        card = approval_result_card(approved=True, tool=tool_name, detail=detail)
+        card_result = send_card(act.chat_id or P2P_CHAT_ID, card, as_identity="bot")
+        _log("approval-card approved: " + card_result)
+        return
+    resolved = decline_approval(
+        message_id, operator_id=operator_id, token=token
+    )
+    if not resolved:
+        _log(f"approval-card: decline failed or already resolved mid={message_id}")
+        send_checked(
+            act.chat_id or P2P_CHAT_ID,
+            "这条确认已经处理过了。",
+            as_identity="bot",
+        )
+        return
+    result = decline_agent_writes_by_message(message_id)
+    tool_name = str(resolved.get("tool") or "")
+    detail = result.get("error") or "已取消写入。"
+    card = approval_result_card(approved=False, tool=tool_name, detail=detail)
+    card_result = send_card(act.chat_id or P2P_CHAT_ID, card, as_identity="bot")
+    _log("approval-card declined: " + card_result)
+
+
+def _run_resumed_task(task: dict[str, Any]) -> str:
+    """Run a task that was just unblocked by an approval callback.
+
+    Returns the human-readable result summary.
+    """
+    from ..runtime.agent.service import _run_task
+
+    try:
+        return str(_run_task(task) or "").strip()
+    except Exception as exc:  # noqa: BLE001
+        return f"确认后继续执行失败：{exc}"
 
 
 def _maybe_push_brief() -> None:
@@ -303,6 +384,43 @@ def _maybe_sync_user_chats() -> None:
         _log("assign-push: " + result + " " + str(item.get("id") or ""))
 
 
+def _maybe_expire_approvals() -> None:
+    """Cancel approval requests that have timed out and notify the originating chat."""
+    global _last_approval_expire_check
+    now_mono = time.monotonic()
+    if now_mono - _last_approval_expire_check < _APPROVAL_EXPIRE_INTERVAL_SEC:
+        return
+    _last_approval_expire_check = now_mono
+    try:
+        expired = expire_stale_approvals()
+    except Exception as exc:
+        _log("approval-expire fail: " + str(exc)[:160])
+        return
+    if not expired:
+        return
+    for row in expired:
+        message_id = str(row.get("message_id") or "").strip()
+        task_id = str(row.get("task_id") or "").strip()
+        tool = str(row.get("tool") or "").strip()
+        if not message_id or not task_id:
+            continue
+        try:
+            from ..runtime.agent.service import decline_agent_writes_by_message
+
+            decline_agent_writes_by_message(message_id)
+        except Exception as exc:
+            _log(f"approval-expire cancel {message_id}: " + str(exc)[:160])
+        payload = load_run(task_id) or {}
+        chat_id = str(payload.get("chat_id") or P2P_CHAT_ID).strip() or P2P_CHAT_ID
+        goal = str(payload.get("goal") or "").strip()
+        try:
+            card = approval_expired_card(tool=tool, goal=goal)
+            result = send_card(chat_id, card, as_identity="bot")
+            _log("approval-expired-card: " + result + " " + message_id)
+        except Exception as exc:
+            _log("approval-expired-card fail: " + str(exc)[:160])
+
+
 def _spawn_consume(
     binary: Path,
     event_key: str,
@@ -354,6 +472,7 @@ def serve(timeout: str | None = None, max_events: int = 0) -> int:
             _maybe_push_brief()
             _maybe_scan_bitable()
             _maybe_sync_user_chats()
+            _maybe_expire_approvals()
             ensure_worker()
             live: list[int] = []
             if msg_proc.poll() is None:
