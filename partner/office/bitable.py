@@ -341,14 +341,14 @@ def _save_seen(seen: set[str]) -> None:
 
 def _who_from_fields(fields: dict[str, Any]) -> str:
     blob = json.dumps(fields, ensure_ascii=False)
-    for key in ("指派人", "提交人", "创建人", "填写人", "name", "姓名"):
+    for key in ("指派人", "负责人", "提交人", "创建人", "填写人", "name", "姓名"):
         val = fields.get(key)
         if isinstance(val, str) and val.strip() and val.strip() not in USER_NAMES:
             return val.strip()
         if isinstance(val, list) and val:
             first = val[0]
             if isinstance(first, dict):
-                name = str(first.get("name") or "").strip()
+                name = str(first.get("name") or "")
                 if name and name not in USER_NAMES:
                     return name
             elif isinstance(first, str) and first not in USER_NAMES:
@@ -359,11 +359,35 @@ def _who_from_fields(fields: dict[str, Any]) -> str:
 
 
 def _record_title(fields: dict[str, Any]) -> str:
-    for key in ("Bug描述", "标题", "title", "缺陷", "任务", "名称"):
+    for key in (
+        "Bug描述", "缺陷描述", "问题描述", "标题", "title", "缺陷", "任务", "任务名称",
+        "任务内容", "名称", "描述", "详情",
+    ):
         val = str(fields.get(key) or "").strip()
         if val:
             return val[:80]
     return ""
+
+
+def _record_summary(fields: dict[str, Any]) -> str:
+    """Build a human-readable summary from key fields when title is empty."""
+    title = _record_title(fields)
+    if title:
+        return title
+    priority = _cell_display(fields.get("优先级") or fields.get("Priority"))
+    status = _cell_display(fields.get("状态") or fields.get("Status"))
+    project = _cell_display(fields.get("项目") or fields.get("项目名"))
+    version = _cell_display(fields.get("提交版本") or fields.get("版本"))
+    parts: list[str] = []
+    if project:
+        parts.append(project)
+    if status:
+        parts.append(status)
+    if priority:
+        parts.append(priority)
+    if version:
+        parts.append(version)
+    return " · ".join(parts) if parts else ""
 
 
 _DETAIL_FIELD_ORDER = (
@@ -542,7 +566,7 @@ def scan_bitable(*, today: date | None = None) -> str:
             if not within:
                 continue
             who = _who_from_fields(fields)
-            title = _record_title(fields)
+            title = _record_summary(fields)
             line = f"【{label}】{who}指派你了"
             if title:
                 line += f"：{title}"

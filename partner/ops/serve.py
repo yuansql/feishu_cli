@@ -97,6 +97,78 @@ def _log(line: str) -> None:
     print(line, file=sys.stderr, flush=True)
 
 
+def _disable_card_button(message_id: str, key: str, label: str) -> None:
+    """Patch the original card so the clicked button becomes disabled and renamed."""
+    if not message_id:
+        return
+    # Fetch the original message to get current card content.
+    from ..core.lark import run_lark
+
+    payload = run_lark(
+        ["im", "+messages-mget", "--message-ids", message_id, "--no-reactions"],
+        as_identity="bot",
+    )
+    if payload.get("ok") is False:
+        _log(f"disable-card: mget fail {message_id}")
+        return
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    msgs = data.get("messages") if isinstance(data.get("messages"), list) else []
+    if not msgs or not isinstance(msgs[0], dict):
+        _log(f"disable-card: no message {message_id}")
+        return
+    content = msgs[0].get("content")
+    if isinstance(content, str):
+        try:
+            card = json.loads(content)
+        except json.JSONDecodeError:
+            _log(f"disable-card: content not json {message_id}")
+            return
+    elif isinstance(content, dict):
+        card = content
+    else:
+        _log(f"disable-card: no content {message_id}")
+        return
+
+    def _walk(node: Any) -> bool:
+        if isinstance(node, dict):
+            value = node.get("value")
+            if isinstance(value, dict) and str(value.get("key") or "") == key:
+                node["text"] = {"tag": "plain_text", "content": label}
+                node["type"] = "default"
+                node["disabled"] = True
+                return True
+            for v in node.values():
+                if _walk(v):
+                    return True
+        elif isinstance(node, list):
+            for item in node:
+                if _walk(item):
+                    return True
+        return False
+
+    if not _walk(card):
+        _log(f"disable-card: key not found {key} in {message_id}")
+        return
+    body = json.dumps(
+        {"msg_type": "interactive", "content": json.dumps(card, ensure_ascii=False)},
+        ensure_ascii=False,
+    )
+    update = run_lark(
+        [
+            "api",
+            "PATCH",
+            f"/open-apis/im/v1/messages/{message_id}",
+            "--data",
+            body,
+        ],
+        as_identity="bot",
+    )
+    if update.get("ok") is False:
+        _log(f"disable-card: patch fail {message_id} {update.get('error')}")
+    else:
+        _log(f"disable-card: patched {message_id} key={key}")
+
+
 def send_ok(result: str) -> bool:
     return (result or "").strip() == "已发送。"
 
@@ -252,6 +324,8 @@ def _handle_line(line: str, seen: set[str]) -> None:
             reply = apply_action(act.act, act.key)
             result = send_checked(act.chat_id or P2P_CHAT_ID, reply, as_identity="bot")
             _log("followup-card: " + result + " " + reply)
+            if act.act == "fu_done" and act.open_message_id:
+                _disable_card_button(act.open_message_id, act.key, "已完成")
             return
         if act.act == "approve" or (act.act == "done" and act.task_id):
             _handle_approval_card(act, approved=True)
@@ -265,6 +339,8 @@ def _handle_line(line: str, seen: set[str]) -> None:
         reply = confirm_card(act.key)
         result = send_checked(act.chat_id or P2P_CHAT_ID, reply, as_identity="bot")
         _log("card: " + result + " " + reply)
+        if act.open_message_id:
+            _disable_card_button(act.open_message_id, act.key, "已处理")
         return
     msg = extract_inbound_message(payload)
     if msg is None:

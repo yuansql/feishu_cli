@@ -595,21 +595,11 @@ def apply_action(
     if found is None:
         return "没找到这条催办。"
     today = today or datetime.now(CN_TZ).date()
+    who = str(found.get("asker_name") or found.get("assignee_name") or "对方")
     if act == "fu_done":
-        who = str(found.get("asker_name") or found.get("assignee_name") or "对方")
-        text = str(found.get("text") or "").strip()
-        for item in items:
-            if str(item.get("status") or "") not in _OPEN:
-                continue
-            same_who = (
-                str(item.get("asker_name") or item.get("assignee_name") or "对方") == who
-            )
-            same_text = str(item.get("text") or "").strip() == text
-            if same_who and same_text:
-                item["status"] = "done"
+        found["status"] = "done"
         save_items(items, path)
         return f"已记下，{who} 那条不再催。"
-    who = str(found.get("assignee_name") or found.get("asker_name") or "对方")
     if act == "fu_snooze":
         found["status"] = "snooze"
         found["snooze_until"] = (today + timedelta(days=1)).isoformat()

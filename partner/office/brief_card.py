@@ -8,6 +8,7 @@ from typing import Any
 
 from .brief import cn_day, work_priorities
 from ..compose.formatters import plain_im_text
+from ..core.ids import USER_NAMES
 
 _AssignPattern = re.compile(r"^【(.+?)】有人指派你了\s*[（(](\d{4}-\d{2}-\d{2})[)）]\s*$")
 
@@ -15,8 +16,13 @@ _LEVEL_COLOR = {"P0": "red", "P1": "orange", "P2": "yellow", "P3": "green"}
 _RSVP_COLOR = {"已接受": "green", "待回复": "orange", "已拒绝": "red", "待定": "yellow"}
 
 
-def _md(content: str) -> dict[str, Any]:
+def _lark_md(content: str) -> dict[str, Any]:
     return {"tag": "lark_md", "content": content}
+
+
+def _md(content: str) -> dict[str, Any]:
+    # Schema 1.0 top-level element must be a container; lark_md is only valid as inner text.
+    return {"tag": "div", "text": _lark_md(content)}
 
 
 def _plain(text: str) -> dict[str, Any]:
@@ -44,12 +50,15 @@ def _tag_md(text: str, color: str = "grey") -> str:
 
 
 def _icon_text(text: str, icon_token: str) -> dict[str, Any]:
-    # Schema 1.0 standard_icon requires a registered icon key.
-    # Fall back to plain text with a leading emoji-style marker.
+    # Schema 1.0 div with markdown text; ignore unregistered icon tokens.
     return {"tag": "div", "text": {"tag": "lark_md", "content": text}}
 
 
 def _stat_card(number: int, label: str, color: str) -> dict[str, Any]:
+    content = (
+        f"<font color='{color}' size=24>**{number}**</font><br/>"
+        f"<font color='grey' size=12>{label}</font>"
+    )
     return {
         "tag": "column",
         "width": "weighted",
@@ -58,9 +67,8 @@ def _stat_card(number: int, label: str, color: str) -> dict[str, Any]:
         "elements": [
             {
                 "tag": "div",
-                "text": {"tag": "lark_md", "content": f"<font color='{color}' size=24>**{number}**</font>"},
+                "text": _lark_md(content),
             },
-            {"tag": "div", "text": _plain(label)},
         ],
     }
 
@@ -118,8 +126,30 @@ def _agenda_line(entry: dict[str, Any]) -> str:
     return line
 
 
-def _done_button(key: str, label: str = "完成") -> dict[str, Any]:
-    """Schema 1.0 callback button. value must be parseable by extract_card_action."""
+def _open_button(url: str, label: str = "打开") -> dict[str, Any]:
+    """Schema 1.0 link button."""
+    return {
+        "tag": "button",
+        "text": _plain(label),
+        "type": "default",
+        "size": "small",
+        "url": url,
+    }
+
+
+def _card_button(key: str, label: str = "完成") -> dict[str, Any]:
+    """Schema 1.0 callback button for pending resolution via confirm_card."""
+    return {
+        "tag": "button",
+        "text": _plain(label),
+        "type": "default",
+        "size": "small",
+        "value": {"act": "done", "key": key},
+    }
+
+
+def _fu_done_button(key: str, label: str = "完成") -> dict[str, Any]:
+    """Schema 1.0 callback button for follow-up ledger apply_action."""
     return {
         "tag": "button",
         "text": _plain(label),
@@ -129,33 +159,20 @@ def _done_button(key: str, label: str = "完成") -> dict[str, Any]:
     }
 
 
-def _row_with_action(line_text: str, key: str, label: str = "完成") -> dict[str, Any]:
-    """A column_set row: left markdown text, right action button."""
-    return {
-        "tag": "column_set",
-        "flex_mode": "none",
-        "background_style": "default",
-        "columns": [
-            {
-                "tag": "column",
-                "width": "weighted",
-                "weight": 6,
-                "vertical_align": "center",
-                "elements": [_md(line_text)],
-            },
-            {
-                "tag": "column",
-                "width": "auto",
-                "vertical_align": "center",
-                "elements": [
-                    {
-                        "tag": "action",
-                        "actions": [_done_button(key, label)],
-                    }
-                ],
-            },
-        ],
-    }
+def _row_with_action(
+    line_text: str,
+    key: str,
+    label: str = "完成",
+    link: str = "",
+    *,
+    use_followup: bool = False,
+) -> list[dict[str, Any]]:
+    """Schema 1.0 block: text line followed by full-width action buttons."""
+    out: list[dict[str, Any]] = [{"tag": "div", "text": _lark_md(line_text)}]
+    if link:
+        out.append(_open_button(link, "打开消息"))
+    out.append(_fu_done_button(key, label) if use_followup else _card_button(key, label))
+    return out
 
 
 def _priority_blocks(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -165,20 +182,69 @@ def _priority_blocks(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         title = plain_im_text(str(row.get("title") or ""))
         reason = plain_im_text(str(row.get("reason") or "待跟进"))
         key = str(row.get("key") or "")
+        link = str(row.get("link") or "").strip()
         text = f"{_tag_md(level, _LEVEL_COLOR.get(level, 'green'))}  {title}\n<font color='grey' size=12>{reason}</font>"
-        out.append(_row_with_action(text, key, "完成") if key else _md(text))
+        if key:
+            out.extend(_row_with_action(text, key, "完成", link=link))
+        else:
+            out.append(_md(text))
     return out
 
 
 def _task_text(item: dict[str, Any], *, show_source: bool = True) -> str:
     """Render structured follow-up / pending item text."""
+    kind = str(item.get("kind") or "").strip()
     who = str(item.get("asker_name") or item.get("sender_name") or "").strip()
     assignee = str(item.get("assignee_name") or "").strip()
-    # Prefer the human who asked/assigned, not the tracked assignee if it is just "有人" or self.
     named = who or assignee
     where = str(item.get("chat_name") or item.get("source_name") or "").strip()
     text = plain_im_text(str(item.get("text") or "")).strip()
     due = str(item.get("due") or "").strip()
+
+    # Bitable assignment notifications: prefer table name + assigner + title/record date.
+    if kind == "bitable_at":
+        match = _AssignPattern.search(text)
+        inner_title = ""
+        table_date = ""
+        if match:
+            inner_title = match.group(1).strip()
+            table_date = match.group(2)
+        # Try to enrich generic Bitable notifications with the real record detail.
+        if match and (not named or named == "有人"):
+            try:
+                from .bitable import reread_bitable_detail
+                detail = reread_bitable_detail(
+                    record_id=str(item.get("message_id") or item.get("id") or ""),
+                    table_label=where,
+                )
+                if detail:
+                    bug = ""
+                    assigner = ""
+                    for line in detail.splitlines():
+                        if line.startswith("Bug描述："):
+                            bug = line.split("：", 1)[-1].strip()
+                        elif line.startswith("指派人："):
+                            assigner = line.split("：", 1)[-1].strip()
+                    if bug:
+                        text = bug
+                    if assigner and assigner not in USER_NAMES:
+                        named = assigner
+            except Exception:
+                pass
+        parts: list[str] = []
+        if where and where != inner_title:
+            parts.append(f"**{where}**")
+        if named and named != "有人":
+            parts.append(f"**{named}**")
+        elif inner_title:
+            parts.append(f"**{inner_title}**")
+        if text and (not match or (named and named != "有人")):
+            parts.append(text)
+        if table_date:
+            parts.append(f"<font color='grey'>{table_date}</font>")
+        elif due:
+            parts.append(f"<font color='grey'>截止 {due}</font>")
+        return " · ".join(parts) if len(parts) > 1 else (parts[0] if parts else text or "任务")
 
     # Clean up generic Bitable assignment notifications that lack real title/person.
     table_date: str | None = None
@@ -189,7 +255,7 @@ def _task_text(item: dict[str, Any], *, show_source: bool = True) -> str:
             due = table_date
         text = f"指派日期：{table_date}" if table_date else ""
 
-    parts: list[str] = []
+    parts = []
     if named and named != "有人":
         parts.append(f"**{named}**")
     elif where:
@@ -209,8 +275,9 @@ def _work_items_blocks(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for item in items[:8]:
         key = str(item.get("id") or item.get("key") or "").strip()
         text = _task_text(item, show_source=True)
+        link = str(item.get("link") or "").strip()
         if key:
-            out.append(_row_with_action(text, key, "完成"))
+            out.extend(_row_with_action(text, key, "完成", link=link, use_followup=True))
         else:
             out.append(_note_box(text))
     return out
@@ -223,18 +290,19 @@ def _pending_blocks(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         key = str(item.get("key") or "").strip()
         who = str(item.get("sender_name") or "").strip()
         where = str(item.get("chat_name") or "群")
-        raw_text = plain_im_text(str(item.get("text") or ""))[:90]
+        raw_text = plain_im_text(str(item.get("text") or ""))[:160]
         tag = str(item.get("tag") or "")
         link = str(item.get("link") or "").strip()
 
         head = f"**{who}** · {where}" if who else f"**{where}**"
         body = raw_text
-        if link and link not in body:
-            body += f"  [{_chip('打开', 'blue')}]({link})"
         if tag:
             body += f"  {_chip(tag, 'grey')}"
         text = f"{head}\n<font color='grey' size=12>{body}</font>"
-        out.append(_row_with_action(text, key, "已处理") if key else _md(text))
+        if key:
+            out.extend(_row_with_action(text, key, "已处理", link=link))
+        else:
+            out.append(_md(text))
     return out
 
 
@@ -332,6 +400,8 @@ def brief_card(
             clean = dict(row)
             clean["title"] = plain_im_text(str(row.get("title") or ""))
             clean["reason"] = plain_im_text(str(row.get("reason") or ""))
+            # Inject the pending key so the card can render a done button for replies.
+            clean["key"] = str(row.get("key") or "")
             clean_rows.append(clean)
         if clean_rows:
             elements.append(_md("**优先处理**"))
@@ -346,11 +416,18 @@ def brief_card(
         elements.extend(_work_items_blocks(work_items))
 
     if pending:
-        elements.append(_hr())
-        elements.append(
-            _section_header("新收到的 @ 与指派", f"{len(pending)} 条", icon="at_filled")
-        )
-        elements.extend(_pending_blocks(pending))
+        # Drop items already shown in 优先处理 to avoid duplication.
+        shown_keys = {str(row.get("key") or "") for row in rows if row.get("key")}
+        fresh_pending = [
+            item for item in pending
+            if str(item.get("key") or "") not in shown_keys
+        ]
+        if fresh_pending:
+            elements.append(_hr())
+            elements.append(
+                _section_header("新收到的 @ 与指派", f"{len(fresh_pending)} 条", icon="at_filled")
+            )
+            elements.extend(_pending_blocks(fresh_pending))
 
     if not elements:
         elements.append(_note_box("没有必须立刻排的事。"))
@@ -364,7 +441,7 @@ def brief_card(
             ),
             "template": "indigo",
         },
-        "body": {"elements": elements},
+        "elements": elements,
     }
 
 
@@ -420,7 +497,15 @@ def day_work_card(
             if not key:
                 continue
             elements.append(_hr())
-            elements.append(_row_with_action(_task_text(item, show_source=True), key, "完成"))
+            elements.extend(
+                _row_with_action(
+                    _task_text(item, show_source=True),
+                    key,
+                    "完成",
+                    link=str(item.get("link") or "").strip(),
+                    use_followup=True,
+                )
+            )
 
     if not tasks and entries and not followup_items and not followups.strip():
         footer = (
@@ -443,5 +528,5 @@ def day_work_card(
             "template": "indigo",
             "icon": {"tag": "standard_icon", "token": "calendar_outlined"},
         },
-        "body": {"elements": elements},
+        "elements": elements,
     }

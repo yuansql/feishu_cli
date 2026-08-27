@@ -168,6 +168,16 @@ def clip_line(text: str, limit: int = 72) -> str:
     return text
 
 
+def _message_app_link(chat_id: str, message_id: str) -> str:
+    """Build an applink that opens the chat and jumps to a specific message."""
+    if not chat_id:
+        return ""
+    base = f"https://applink.feishu.cn/client/chat/open?openChatId={chat_id}"
+    if message_id:
+        base += f"&position={message_id}"
+    return base
+
+
 def approval_priority_lines(payload: dict[str, Any]) -> list[str]:
     if payload.get("ok") is False:
         return []
@@ -319,6 +329,8 @@ def rank_priorities(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "blocks": bool(item.get("blocks")),
                 "urgent": bool(item.get("urgent")),
                 "kind": str(item.get("kind") or ""),
+                "key": str(item.get("key") or ""),
+                "link": str(item.get("link") or "").strip(),
             }
         )
     rows.sort(
@@ -353,7 +365,9 @@ def pending_brief_line(item: dict[str, Any]) -> str:
     if tag:
         line += f"（{tag}）"
     if link and link not in line:
-        line += f" {link}"
+        # Feishu plain-text fallback cannot render markdown links reliably;
+        # keep the raw applink so it is at least tappable/ copyable.
+        line += f" 跳转：{link}"
     return line
 
 
@@ -433,12 +447,13 @@ def format_daily_brief(
     long_term: list[str] | None = None,
 ) -> str:
     lines = [f"📋 每日工作简报 · {cn_day(today)}"]
-    if progressed or unreplied or long_term:
+    showed_unreplied = bool(unreplied)
+    if progressed or showed_unreplied or long_term:
         lines += ["", f"一、昨天小结（{cn_day(workday, paren=False)}）"]
         if progressed:
             lines.append("推进事项")
             lines.extend(f"- {item}" for item in progressed)
-        if unreplied:
+        if showed_unreplied:
             lines.append(f"⚠️ 待处理 / 待回复（{len(unreplied)}项）")
             for index, item in enumerate(unreplied, 1):
                 lines.append(f"{index}. {item}")
@@ -666,17 +681,20 @@ def _collect(now: datetime) -> dict[str, Any]:
             tag = "进行中·已追问未答完" if state == "clarifying" else "未完成·未回复"
             _add_pending(
                 {
-                    "key": pending_key(
-                        message_id=str(hit.get("message_id") or ""),
-                        chat_id=str(hit.get("chat_id") or ""),
-                        text=text,
-                    ),
-                    "chat_id": str(hit.get("chat_id") or ""),
-                    "chat_name": str(hit.get("chat_name") or hit.get("chat_id") or "群"),
-                    "sender_name": _sender_name(hit),
-                    "text": text,
-                    "tag": tag,
-                    "link": str(hit.get("message_app_link") or "").strip(),
+                "key": pending_key(
+                    message_id=str(hit.get("message_id") or ""),
+                    chat_id=str(hit.get("chat_id") or ""),
+                    text=text,
+                ),
+                "chat_id": str(hit.get("chat_id") or ""),
+                "chat_name": str(hit.get("chat_name") or hit.get("chat_id") or "群"),
+                "sender_name": _sender_name(hit),
+                "message_id": str(hit.get("message_id") or ""),
+                "text": text,
+                "tag": tag,
+                "link": str(hit.get("message_app_link") or _message_app_link(
+                    str(hit.get("chat_id") or ""), str(hit.get("message_id") or "")
+                )).strip(),
                 }
             )
     for item in recent_items(days=4):
@@ -701,9 +719,12 @@ def _collect(now: datetime) -> dict[str, Any]:
                 "chat_id": str(item.get("chat_id") or ""),
                 "chat_name": str(item.get("chat_name") or "群"),
                 "sender_name": _sender_name(item),
+                "message_id": str(item.get("message_id") or ""),
                 "text": text,
                 "tag": tag,
-                "link": "",
+                "link": _message_app_link(
+                    str(item.get("chat_id") or ""), str(item.get("message_id") or "")
+                ),
             }
         )
     if mail.get("ok") is not False:
@@ -791,8 +812,8 @@ def _collect(now: datetime) -> dict[str, Any]:
         tag = str(item.get("tag") or "")
         who = str(item.get("sender_name") or "").strip()
         where = str(item.get("chat_name") or "群")
+        quote = str(item.get("text") or "")[:90]
         title = f"回复{who}" if who else f"回 {where} 那条"
-        quote = clip_line(str(item.get("text") or ""), 24)
         if quote:
             title += f"：{quote}"
         candidates.append(
@@ -803,6 +824,8 @@ def _collect(now: datetime) -> dict[str, Any]:
                 "kind": "reply",
                 "level": "P1" if "未回复" in tag else "P2",
                 "reason": "未回复，卡进度" if "未回复" in tag else "已追问未答完",
+                "key": str(item.get("key") or ""),
+                "link": str(item.get("link") or "").strip(),
             }
         )
 
@@ -811,6 +834,13 @@ def _collect(now: datetime) -> dict[str, Any]:
     priorities = [
         {**item, "title": title} for item, title in zip(picked, titles)
     ]
+    # Ensure the injected reply key/link survives dedup.
+    for idx, item in enumerate(priorities):
+        if item.get("kind") == "reply" and idx < len(picked):
+            if not item.get("key"):
+                item["key"] = picked[idx].get("key", "")
+            if not item.get("link"):
+                item["link"] = picked[idx].get("link", "")
     long_term = long_term_task_lines(
         tasks, today=today, skip_titles=[str(item["title"]) for item in priorities]
     )
@@ -828,7 +858,7 @@ def _collect(now: datetime) -> dict[str, Any]:
 
     return {
         "progressed": progressed[:8],
-        "unreplied": unreplied[:8],
+        "unreplied": [],
         "priorities": priorities,
         "week_notes": week_notes,
         "today_agenda": today_agenda,

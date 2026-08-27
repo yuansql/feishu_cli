@@ -399,9 +399,8 @@ class FormatBriefTests(unittest.TestCase):
         self.assertIn("回复胡柳斌", blob)
         self.assertNotIn("研发部周会（15:30–16:30）", blob)
         self.assertIn("'tag': 'button'", blob)
-        self.assertIn("'tag': 'action'", blob)
-        self.assertFalse(any(el.get("tag") == "tag" for el in card["body"]["elements"]))
-        self.assertFalse(any(el.get("tag") == "note" for el in card["body"]["elements"]))
+        self.assertFalse(any(el.get("tag") == "tag" for el in card["elements"]))
+        self.assertFalse(any(el.get("tag") == "note" for el in card["elements"]))
 
     def test_brief_card_strips_html_from_pending(self) -> None:
         card = brief_card(
@@ -521,7 +520,7 @@ class FormatBriefTests(unittest.TestCase):
         )
         self.assertEqual(
             line,
-            "胡柳斌（AI品沟通群）：设备关机了APP设置为何生效（未完成·未回复） https://applink.feishu.cn/x",
+            "胡柳斌（AI品沟通群）：设备关机了APP设置为何生效（未完成·未回复） 跳转：https://applink.feishu.cn/x",
         )
 
 
