@@ -1,30 +1,26 @@
-"""Feishu schema 2.0 card for the daily brief. Text is only a fallback."""
+"""Feishu card for the daily brief. Uses schema 1.0 for interactive buttons."""
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from typing import Any
 
 from .brief import cn_day, work_priorities
 from ..compose.formatters import plain_im_text
 
+_AssignPattern = re.compile(r"^【(.+?)】有人指派你了\s*[（(](\d{4}-\d{2}-\d{2})[)）]\s*$")
+
 _LEVEL_COLOR = {"P0": "red", "P1": "orange", "P2": "yellow", "P3": "green"}
 _RSVP_COLOR = {"已接受": "green", "待回复": "orange", "已拒绝": "red", "待定": "yellow"}
-_SECTION_BG = {"indigo": "CCE0FF", "blue": "D6EBFF", "wathet": "E6F0FF"}
 
 
-def _md(content: str, *, size: str = "") -> dict[str, Any]:
-    el: dict[str, Any] = {"tag": "markdown", "content": content}
-    if size:
-        el["text_size"] = size
-    return el
+def _md(content: str) -> dict[str, Any]:
+    return {"tag": "lark_md", "content": content}
 
 
-def _plain(text: str, *, size: str = "") -> dict[str, Any]:
-    el: dict[str, Any] = {"tag": "plain_text", "content": text}
-    if size:
-        el["text_size"] = size
-    return el
+def _plain(text: str) -> dict[str, Any]:
+    return {"tag": "plain_text", "content": text}
 
 
 def _hr() -> dict[str, Any]:
@@ -35,8 +31,7 @@ def _chip(text: str, color: str) -> str:
     return f"<font color='{color}'>**{text}**</font>"
 
 
-def _tag(text: str, color: str = "grey") -> dict[str, Any]:
-    # schema 2.0 does not support the <tag> element; emulate with colored markdown.
+def _tag_md(text: str, color: str = "grey") -> str:
     color_map = {
         "red": "#F53F3F",
         "orange": "#FF7D00",
@@ -45,16 +40,13 @@ def _tag(text: str, color: str = "grey") -> dict[str, Any]:
         "blue": "#165DFF",
         "grey": "#86909C",
     }
-    hex_color = color_map.get(color, color)
-    return _md(f"**<font color='{hex_color}'>{text}</font>**")
+    return f"<font color='{color_map.get(color, color)}'>**{text}**</font>"
 
 
 def _icon_text(text: str, icon_token: str) -> dict[str, Any]:
-    return {
-        "tag": "div",
-        "text": {"tag": "lark_md", "content": text},
-        "icon": {"tag": "standard_icon", "token": icon_token},
-    }
+    # Schema 1.0 standard_icon requires a registered icon key.
+    # Fall back to plain text with a leading emoji-style marker.
+    return {"tag": "div", "text": {"tag": "lark_md", "content": text}}
 
 
 def _stat_card(number: int, label: str, color: str) -> dict[str, Any]:
@@ -62,15 +54,13 @@ def _stat_card(number: int, label: str, color: str) -> dict[str, Any]:
         "tag": "column",
         "width": "weighted",
         "weight": 1,
+        "vertical_align": "center",
         "elements": [
             {
                 "tag": "div",
-                "text": {
-                    "tag": "lark_md",
-                    "content": f"<font color='{color}' size=24>**{number}**</font>",
-                },
+                "text": {"tag": "lark_md", "content": f"<font color='{color}' size=24>**{number}**</font>"},
             },
-            {"tag": "div", "text": {"tag": "plain_text", "content": label}},
+            {"tag": "div", "text": _plain(label)},
         ],
     }
 
@@ -78,6 +68,8 @@ def _stat_card(number: int, label: str, color: str) -> dict[str, Any]:
 def _overview_columns(progressed: int, unreplied: int, meetings: int) -> dict[str, Any]:
     return {
         "tag": "column_set",
+        "flex_mode": "none",
+        "background_style": "default",
         "columns": [
             _stat_card(progressed, "昨日推进", "green"),
             _stat_card(unreplied, "待回复", "orange" if unreplied else "grey"),
@@ -94,7 +86,6 @@ def _section_header(title: str, subtitle: str = "", *, icon: str = "") -> dict[s
 
 
 def _note_box(text: str, color: str = "grey") -> dict[str, Any]:
-    # schema 2.0 note is unsupported; render as a bordered div-like markdown block.
     color_map = {
         "red": "#F53F3F",
         "orange": "#FF7D00",
@@ -127,42 +118,44 @@ def _agenda_line(entry: dict[str, Any]) -> str:
     return line
 
 
-def _agenda_column(entries: list[dict[str, Any]]) -> dict[str, Any]:
-    return {
-        "tag": "column",
-        "width": "weighted",
-        "weight": 1,
-        "elements": [_md(_agenda_line(e)) for e in entries],
-    }
-
-
-def _open_btn(label: str, url: str, *, kind: str = "default") -> dict[str, Any]:
+def _done_button(key: str, label: str = "完成") -> dict[str, Any]:
+    """Schema 1.0 callback button. value must be parseable by extract_card_action."""
     return {
         "tag": "button",
-        "text": {"tag": "plain_text", "content": label},
-        "type": kind,
+        "text": _plain(label),
+        "type": "default",
         "size": "small",
-        "behaviors": [
-            {
-                "type": "open_url",
-                "default_url": url,
-                "pc_url": url,
-                "ios_url": url,
-                "android_url": url,
-            }
-        ],
+        "value": {"act": "fu_done", "key": key},
     }
 
 
-def _agenda_actions(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Only RSVP-pending meetings get a jump button. Title itself is already a calendar link."""
-    out: list[dict[str, Any]] = []
-    for entry in entries:
-        title = str(entry.get("title") or "日程")[:8]
-        app_link = str(entry.get("app_link") or "")
-        if str(entry.get("rsvp") or "") == "待回复" and app_link:
-            out.append(_open_btn(f"回复·{title}", app_link, kind="primary"))
-    return out[:4]
+def _row_with_action(line_text: str, key: str, label: str = "完成") -> dict[str, Any]:
+    """A column_set row: left markdown text, right action button."""
+    return {
+        "tag": "column_set",
+        "flex_mode": "none",
+        "background_style": "default",
+        "columns": [
+            {
+                "tag": "column",
+                "width": "weighted",
+                "weight": 6,
+                "vertical_align": "center",
+                "elements": [_md(line_text)],
+            },
+            {
+                "tag": "column",
+                "width": "auto",
+                "vertical_align": "center",
+                "elements": [
+                    {
+                        "tag": "action",
+                        "actions": [_done_button(key, label)],
+                    }
+                ],
+            },
+        ],
+    }
 
 
 def _priority_blocks(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -171,62 +164,106 @@ def _priority_blocks(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         level = str(row.get("level") or "P3")
         title = plain_im_text(str(row.get("title") or ""))
         reason = plain_im_text(str(row.get("reason") or "待跟进"))
-        out.append(
-            {
-                "tag": "column_set",
-                "columns": [
-                    {
-                        "tag": "column",
-                        "width": "weighted",
-                        "weight": 1,
-                        "elements": [
-                            _tag(level, _LEVEL_COLOR.get(level, "green")),
-                        ],
-                    },
-                    {
-                        "tag": "column",
-                        "width": "weighted",
-                        "weight": 5,
-                        "elements": [
-                            _md(title),
-                        ],
-                    },
-                    {
-                        "tag": "column",
-                        "width": "weighted",
-                        "weight": 3,
-                        "elements": [
-                            _md(f"<font color='grey'>{reason}</font>"),
-                        ],
-                    },
-                ],
-            }
-        )
+        key = str(row.get("key") or "")
+        text = f"{_tag_md(level, _LEVEL_COLOR.get(level, 'green'))}  {title}\n<font color='grey' size=12>{reason}</font>"
+        out.append(_row_with_action(text, key, "完成") if key else _md(text))
+    return out
+
+
+def _task_text(item: dict[str, Any], *, show_source: bool = True) -> str:
+    """Render structured follow-up / pending item text."""
+    who = str(item.get("asker_name") or item.get("sender_name") or "").strip()
+    assignee = str(item.get("assignee_name") or "").strip()
+    # Prefer the human who asked/assigned, not the tracked assignee if it is just "有人" or self.
+    named = who or assignee
+    where = str(item.get("chat_name") or item.get("source_name") or "").strip()
+    text = plain_im_text(str(item.get("text") or "")).strip()
+    due = str(item.get("due") or "").strip()
+
+    # Clean up generic Bitable assignment notifications that lack real title/person.
+    table_date: str | None = None
+    match = _AssignPattern.search(text)
+    if match:
+        table_date = match.group(2)
+        if table_date and due:
+            due = table_date
+        text = f"指派日期：{table_date}" if table_date else ""
+
+    parts: list[str] = []
+    if named and named != "有人":
+        parts.append(f"**{named}**")
+    elif where:
+        parts.append(f"**{where}**")
+    if text:
+        parts.append(text)
+    if due and due not in text:
+        parts.append(f"<font color='grey'>截止 {due}</font>")
+    if show_source and where and not (named and where) and not (text and where in text):
+        parts.append(f"<font color='grey'>{where}</font>")
+    return " · ".join(parts) if len(parts) > 1 else (parts[0] if parts else text or "任务")
+
+
+def _work_items_blocks(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Structured follow-up items with done buttons."""
+    out: list[dict[str, Any]] = []
+    for item in items[:8]:
+        key = str(item.get("id") or item.get("key") or "").strip()
+        text = _task_text(item, show_source=True)
+        if key:
+            out.append(_row_with_action(text, key, "完成"))
+        else:
+            out.append(_note_box(text))
     return out
 
 
 def _pending_blocks(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Render pending @ items as note blocks. Schema 2.0 action cannot live inside column_set."""
+    """Pending @/mail items with handled buttons."""
     out: list[dict[str, Any]] = []
     for item in items[:5]:
+        key = str(item.get("key") or "").strip()
         who = str(item.get("sender_name") or "").strip()
         where = str(item.get("chat_name") or "群")
-        text = plain_im_text(str(item.get("text") or ""))[:90]
+        raw_text = plain_im_text(str(item.get("text") or ""))[:90]
         tag = str(item.get("tag") or "")
-        head = f"**{who}** · {where}" if who else f"**{where}**"
-        body = text
         link = str(item.get("link") or "").strip()
+
+        head = f"**{who}** · {where}" if who else f"**{where}**"
+        body = raw_text
         if link and link not in body:
             body += f"  [{_chip('打开', 'blue')}]({link})"
         if tag:
             body += f"  {_chip(tag, 'grey')}"
-        content = f"{head}\n<font color='grey' size=12>{body}</font>"
-        out.append(_note_box(content, "grey"))
-        # Interactions removed: schema 2.0 action element is unsupported by bot p2p send.
+        text = f"{head}\n<font color='grey' size=12>{body}</font>"
+        out.append(_row_with_action(text, key, "已处理") if key else _md(text))
     return out
 
 
-def brief_card(data: dict[str, Any], *, followups: str = "") -> dict[str, Any]:
+def _resolve_work_items(
+    data: dict[str, Any], followups: str, followup_items: list[dict[str, Any]] | None
+) -> list[dict[str, Any]]:
+    """Return structured follow-up items for the day."""
+    if followup_items:
+        # Only open items.
+        return [it for it in followup_items if str(it.get("status") or "") not in {"done", "ignore"}]
+    # Legacy: parse text lines into pseudo-items.
+    lines = [plain_im_text(line) for line in followups.splitlines() if line.strip()]
+    return [{"text": line} for line in lines]
+
+
+def _card_config(title: str, today: date) -> dict[str, Any]:
+    return {
+        "wide_screen_mode": True,
+        "enable_forward": True,
+        "update_multi": True,
+    }
+
+
+def brief_card(
+    data: dict[str, Any],
+    *,
+    followups: str = "",
+    followup_items: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     today = date.fromisoformat(str(data["today"]))
     workday = date.fromisoformat(str(data["workday"]))
     entries = [item for item in (data.get("today_entries") or []) if isinstance(item, dict)]
@@ -242,11 +279,7 @@ def brief_card(data: dict[str, Any], *, followups: str = "") -> dict[str, Any]:
     ]
     week_notes = [str(item) for item in (data.get("week_notes") or []) if item]
     rows = work_priorities(data.get("priorities") or [], agenda=entries or data.get("today_agenda"))
-    work_lines = [
-        plain_im_text(line)
-        for line in (followups or str(data.get("followups") or "")).splitlines()
-        if line.strip()
-    ]
+    work_items = _resolve_work_items(data, followups, followup_items)
 
     elements: list[dict[str, Any]] = []
 
@@ -257,9 +290,7 @@ def brief_card(data: dict[str, Any], *, followups: str = "") -> dict[str, Any]:
     if progressed or unreplied or long_term:
         elements.append(_hr())
         elements.append(
-            _section_header(
-                "一、昨天小结", cn_day(workday, paren=False), icon="time_filled"
-            )
+            _section_header("一、昨天小结", cn_day(workday, paren=False), icon="time_filled")
         )
         if progressed:
             elements.append(_md("**推进事项**"))
@@ -267,10 +298,12 @@ def brief_card(data: dict[str, Any], *, followups: str = "") -> dict[str, Any]:
                 elements.append(_md(f"✅ {item}"))
         if unreplied:
             elements.append(_md(f"**待处理 · {len(unreplied)}**"))
-            elements.extend(_pending_blocks([
-                {"text": item, "sender_name": "", "chat_name": "", "tag": ""}
-                for item in unreplied
-            ]))
+            elements.extend(
+                _pending_blocks([
+                    {"text": item, "sender_name": "", "chat_name": "", "tag": ""}
+                    for item in unreplied
+                ])
+            )
         if long_term:
             elements.append(_note_box(f"长期待办 {len(long_term)} 项：" + " / ".join(long_term)))
 
@@ -284,7 +317,7 @@ def brief_card(data: dict[str, Any], *, followups: str = "") -> dict[str, Any]:
         for item in week_notes:
             today_elements.append(_md(f"• {item}"))
 
-    if today_elements or rows or work_lines:
+    if today_elements or rows or work_items:
         elements.append(_hr())
         elements.append(
             _section_header("二、今天规划", cn_day(today, paren=False), icon="tab_calendar_colorful")
@@ -300,19 +333,17 @@ def brief_card(data: dict[str, Any], *, followups: str = "") -> dict[str, Any]:
             clean["title"] = plain_im_text(str(row.get("title") or ""))
             clean["reason"] = plain_im_text(str(row.get("reason") or ""))
             clean_rows.append(clean)
-        elements.append(_md("**优先处理**"))
-        elements.extend(_priority_blocks(clean_rows))
-    elif entries and not work_lines:
-        elements.append(
-            _note_box("没有卡人的待办，先把今天的会开完。", color="blue")
-        )
+        if clean_rows:
+            elements.append(_md("**优先处理**"))
+            elements.extend(_priority_blocks(clean_rows))
+    elif entries and not work_items:
+        elements.append(_note_box("没有卡人的待办，先把今天的会开完。", color="blue"))
 
-    if work_lines:
+    if work_items:
         if elements and elements[-1].get("tag") != "hr":
             elements.append(_hr())
         elements.append(_md("**要跟的活**"))
-        for line in work_lines:
-            elements.append(_md(f"• {line}"))
+        elements.extend(_work_items_blocks(work_items))
 
     if pending:
         elements.append(_hr())
@@ -325,21 +356,13 @@ def brief_card(data: dict[str, Any], *, followups: str = "") -> dict[str, Any]:
         elements.append(_note_box("没有必须立刻排的事。"))
 
     return {
-        "schema": "2.0",
-        "config": {
-            "width_mode": "compact",
-            "enable_forward": True,
-            "update_multi": True,
-            "summary": {"content": f"每日工作简报 · {cn_day(today)}"},
-        },
+        "config": _card_config("每日工作简报", today),
         "header": {
-            "title": {"tag": "plain_text", "content": "每日工作简报"},
-            "subtitle": {
-                "tag": "plain_text",
-                "content": f"{cn_day(today).replace(' (', ' · ').rstrip(')')} · {len(entries)}场会 · 待回复{len(unreplied)}",
-            },
+            "title": _plain("每日工作简报"),
+            "subtitle": _plain(
+                f"{cn_day(today).replace(' (', ' · ').rstrip(')')} · {len(entries)}场会 · 待回复{len(unreplied)}"
+            ),
             "template": "indigo",
-            "icon": {"tag": "standard_icon", "token": "calendar_outlined"},
         },
         "body": {"elements": elements},
     }
@@ -351,13 +374,13 @@ def day_work_card(
     day: date,
     entries: list[dict[str, Any]],
     followups: str = "",
+    followup_items: list[dict[str, Any]] | None = None,
     task_lines: list[str] | None = None,
 ) -> dict[str, Any]:
     tasks = [line for line in (task_lines or []) if line]
-    work = (followups or "").strip()
     tomorrow = kind == "tomorrow"
     title = "明日安排" if tomorrow else "每日工作简报"
-    heading = "明日日程" if tomorrow else "今日日程"
+    heading_text = "明日日程" if tomorrow else "今日日程"
     section = (
         f"**明天安排** · {cn_day(day, paren=False)}"
         if tomorrow
@@ -367,7 +390,7 @@ def day_work_card(
     elements: list[dict[str, Any]] = []
     elements.append(_overview_columns(0, 0, len(entries)))
     elements.append(_hr())
-    elements.append(_section_header(heading, cn_day(day, paren=False), icon="tab_calendar_colorful"))
+    elements.append(_section_header(heading_text, cn_day(day, paren=False), icon="tab_calendar_colorful"))
 
     body_lines = [section]
     if entries:
@@ -377,40 +400,46 @@ def day_work_card(
         body_lines.append("**待办**")
         for line in tasks:
             body_lines.append(f"- {line}")
-    if work:
+    if followup_items:
         body_lines.append("**要跟的活**")
-        for line in work.splitlines():
+        for item in followup_items[:6]:
+            body_lines.append("- " + _task_text(item, show_source=False))
+    elif followups.strip():
+        body_lines.append("**要跟的活**")
+        for line in followups.splitlines():
             if line.strip():
                 body_lines.append(f"- {plain_im_text(line)}")
 
     if len(body_lines) > 1:
         elements.append(_md("\n".join(body_lines)))
 
-    if not tasks and entries and not work:
+    # Add done buttons for follow-ups in a clean row list below the markdown block.
+    if followup_items:
+        for item in followup_items[:6]:
+            key = str(item.get("id") or item.get("key") or "").strip()
+            if not key:
+                continue
+            elements.append(_hr())
+            elements.append(_row_with_action(_task_text(item, show_source=True), key, "完成"))
+
+    if not tasks and entries and not followup_items and not followups.strip():
         footer = (
             "没有卡人的待办，先看明天的会。"
             if tomorrow
             else "没有卡人的待办，先把今天的会开完。"
         )
-        elements.append(_note_box(footer, "blue"))
+        elements.append(_note_box(footer, color="blue"))
 
     if not elements:
         elements.append(_note_box("这天没有日程，跟进账里也没有未闭环的活。"))
 
     return {
-        "schema": "2.0",
-        "config": {
-            "width_mode": "compact",
-            "enable_forward": True,
-            "update_multi": True,
-            "summary": {"content": f"{title} · {cn_day(day)}"},
-        },
+        "config": _card_config(title, day),
         "header": {
-            "title": {"tag": "plain_text", "content": title},
-            "subtitle": {
-                "tag": "plain_text",
-                "content": f"{cn_day(day).replace(' (', ' · ').rstrip(')')} · {len(entries)}场会",
-            },
+            "title": _plain(title),
+            "subtitle": _plain(
+                f"{cn_day(day).replace(' (', ' · ').rstrip(')')} · {len(entries)}场会"
+            ),
             "template": "indigo",
             "icon": {"tag": "standard_icon", "token": "calendar_outlined"},
         },

@@ -341,7 +341,7 @@ def _save_seen(seen: set[str]) -> None:
 
 def _who_from_fields(fields: dict[str, Any]) -> str:
     blob = json.dumps(fields, ensure_ascii=False)
-    for key in ("提交人", "创建人", "填写人", "name", "姓名"):
+    for key in ("指派人", "提交人", "创建人", "填写人", "name", "姓名"):
         val = fields.get(key)
         if isinstance(val, str) and val.strip() and val.strip() not in USER_NAMES:
             return val.strip()

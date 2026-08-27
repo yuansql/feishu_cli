@@ -410,9 +410,13 @@ def send_style_card(intent: Intent, chat_id: str) -> bool:
         # 「今天」也发完整简报卡：昨天小结 + 今天规划 + 要跟的活，避免只剩日程显得少东西
         from .brief import collect_brief
         from .brief_card import brief_card
-        from .followup import followups_for_command
+        from .followup import followup_items_for_command, followups_for_command
 
-        card = brief_card(collect_brief(), followups=followups_for_command())
+        card = brief_card(
+            collect_brief(),
+            followups=followups_for_command(),
+            followup_items=followup_items_for_command(),
+        )
     else:
         from .brief import agenda_entries
         from .brief_card import day_work_card
@@ -421,7 +425,14 @@ def send_style_card(intent: Intent, chat_id: str) -> bool:
         start, end = _day_bounds(offset)
         entries = agenda_entries(_agenda_range(start, end))
         tasks = run_lark(['task', '+get-my-tasks', '--complete=false', '--page-limit', '20'], as_identity='user')
-        card = day_work_card(kind=intent.action, day=start.date(), entries=entries, followups=followups_for_command(), task_lines=_task_lines(tasks))
+        card = day_work_card(
+            kind=intent.action,
+            day=start.date(),
+            entries=entries,
+            followups=followups_for_command(),
+            followup_items=followup_items_for_command(),
+            task_lines=_task_lines(tasks),
+        )
     result = send_card(chat_id, card)
     if result != '已发送。':
         return False

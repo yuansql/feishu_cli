@@ -387,7 +387,6 @@ class FormatBriefTests(unittest.TestCase):
             }
         )
         blob = str(card)
-        self.assertEqual(card.get("schema"), "2.0")
         self.assertIn("每日工作简报", blob)
         self.assertIn("column_set", blob)
         self.assertIn("回复胡柳斌", blob)
@@ -399,11 +398,10 @@ class FormatBriefTests(unittest.TestCase):
         self.assertNotIn("空栏表示", blob)
         self.assertIn("回复胡柳斌", blob)
         self.assertNotIn("研发部周会（15:30–16:30）", blob)
-        self.assertFalse(any(el.get("tag") == "button" for el in card["body"]["elements"]))
-        self.assertFalse(any(el.get("tag") == "action" for el in card["body"]["elements"]))
+        self.assertIn("'tag': 'button'", blob)
+        self.assertIn("'tag': 'action'", blob)
         self.assertFalse(any(el.get("tag") == "tag" for el in card["body"]["elements"]))
         self.assertFalse(any(el.get("tag") == "note" for el in card["body"]["elements"]))
-        self.assertNotIn("elements", card)
 
     def test_brief_card_strips_html_from_pending(self) -> None:
         card = brief_card(
@@ -502,9 +500,7 @@ class FormatBriefTests(unittest.TestCase):
             task_lines=[],
         )
         blob = str(card)
-        self.assertEqual(card.get("schema"), "2.0")
         self.assertEqual(card["header"]["title"]["content"], "明日安排")
-        self.assertIn("calendar_outlined", blob)
         self.assertIn("明日日程", blob)
         self.assertIn("已接受", blob)
         self.assertIn("green", blob)
@@ -596,16 +592,20 @@ class PushOnceTests(unittest.TestCase):
                         "partner.office.followup.followups_for_command",
                         return_value="",
                     ):
-                        with patch("partner.actions.send_card", side_effect=slow_card):
-                            with patch("partner.actions.send_text"):
-                                threads = [
-                                    threading.Thread(target=run)
-                                    for _ in range(2)
-                                ]
-                                for thread in threads:
-                                    thread.start()
-                                for thread in threads:
-                                    thread.join(timeout=3)
+                        with patch(
+                            "partner.office.followup.followup_items_for_command",
+                            return_value=[],
+                        ):
+                                with patch("partner.actions.send_card", side_effect=slow_card):
+                                    with patch("partner.actions.send_text"):
+                                        threads = [
+                                            threading.Thread(target=run)
+                                            for _ in range(2)
+                                        ]
+                                        for thread in threads:
+                                            thread.start()
+                                        for thread in threads:
+                                            thread.join(timeout=3)
         self.assertEqual(sends, ["card"])
 
 

@@ -840,6 +840,12 @@ def _collect(now: datetime) -> dict[str, Any]:
     }
 
 
+def followup_items_for_brief(path: Path | None = None) -> list[dict[str, Any]]:
+    """Open follow-up items in a card-friendly shape."""
+    from . import followup as _followup
+    return _followup.followup_items_for_command(path=path)
+
+
 def snapshot_pending(now: datetime | None = None) -> None:
     now = now or datetime.now(CN_TZ)
     if now.tzinfo is None:
@@ -932,11 +938,11 @@ def push_brief(*, force: bool = False, now: datetime | None = None) -> str:
         today_agenda=data.get("today_agenda") or [],
         long_term=data.get("long_term") or [],
     )
-    from .followup import followups_for_command
+    from .followup import followup_items_for_command, followups_for_command
 
     card_res = send_card(
         P2P_CHAT_ID,
-        brief_card(data, followups=followups_for_command()),
+        brief_card(data, followups=followups_for_command(), followup_items=followup_items_for_command()),
         as_identity="bot",
     )
     if card_res == "已发送。":

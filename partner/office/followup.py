@@ -516,6 +516,29 @@ def followups_for_command(*, path: Path | None = None, scan: bool = True) -> str
     return format_open_followups(load_items(path))
 
 
+def followup_items_for_command(*, path: Path | None = None, scan: bool = True) -> list[dict[str, Any]]:
+    """Structured open follow-up items for cards with action buttons."""
+    if scan:
+        try:
+            scan_recent_p2p(path=path)
+        except Exception:
+            pass
+    today = datetime.now(CN_TZ).date()
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in load_items(path):
+        if not _active(item, today):
+            continue
+        key = str(item.get("id") or "").strip()
+        if not key:
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(item)
+    return out
+
+
 def _work_line(item: dict[str, Any]) -> str:
     kind = str(item.get("kind") or "")
     text = str(item.get("text") or "").replace("\n", " ").strip()
