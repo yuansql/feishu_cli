@@ -389,25 +389,21 @@ class FormatBriefTests(unittest.TestCase):
         blob = str(card)
         self.assertEqual(card.get("schema"), "2.0")
         self.assertIn("每日工作简报", blob)
-        self.assertIn("table", blob)
+        self.assertIn("column_set", blob)
+        self.assertIn("tag", blob)
         self.assertIn("回复胡柳斌", blob)
         self.assertIn("已处理", blob)
         self.assertIn("open_url", blob)
         self.assertIn("client/calendar/event/detail?key=abc", blob)
         self.assertNotIn("进会", blob)
-        self.assertIn("去回复", blob)
+        self.assertIn("回复·", blob)
         self.assertIn("去看", blob)
-        self.assertNotIn("column_set", blob)
         self.assertIn("15:30–16:30", blob)
         self.assertIn("已接受", blob)
         self.assertNotIn("优先级 | 事项 | 原因", blob)
         self.assertNotIn("空栏表示", blob)
-        table = next(
-            el for el in card["body"]["elements"] if el.get("tag") == "table"
-        )
-        titles = [row.get("item") for row in table["rows"]]
-        self.assertIn("回复胡柳斌", titles)
-        self.assertNotIn("研发部周会（15:30–16:30）", titles)
+        self.assertIn("回复胡柳斌", blob)
+        self.assertNotIn("研发部周会（15:30–16:30）", blob)
         self.assertFalse(any(el.get("tag") == "button" for el in card["body"]["elements"]))
         self.assertTrue(any(el.get("tag") == "action" for el in card["body"]["elements"]))
         self.assertNotIn("elements", card)
@@ -518,7 +514,7 @@ class FormatBriefTests(unittest.TestCase):
         self.assertIn("要跟的活", blob)
         self.assertIn("体验总结", blob)
         self.assertIn("applink.feishu.cn", blob)
-        self.assertNotIn("column_set", blob)
+        self.assertIn("column_set", blob)
 
     def test_pending_brief_line_is_who_chat_quote(self) -> None:
         line = pending_brief_line(
