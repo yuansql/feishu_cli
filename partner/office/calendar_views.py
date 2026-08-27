@@ -2,7 +2,18 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from typing import Any
-from ..compose.formatters import document_markdown, format_agenda, format_lark_error, format_tasks, format_day_work, format_today, format_weekly_from_doc, format_weekly_human, pick_personal_weekly
+from ..compose.formatters import (
+    document_markdown,
+    format_agenda,
+    format_lark_error,
+    format_tasks,
+    format_day_work,
+    format_today,
+    format_weekly_from_doc,
+    format_weekly_human,
+    format_weekly_retrospective,
+    pick_personal_weekly,
+)
 from ..core.ids import WEEKLY_QUERY
 from ..core.lark import run_lark
 

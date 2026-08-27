@@ -117,7 +117,9 @@ def _facts_for(intent: Intent) -> str:
     if intent.action == "tomorrow":
         return tomorrow_text()
     if intent.action == "weekly":
-        return weekly_text(focus=intent.query if intent.query == "next" else "")
+        return weekly_text(
+            focus=intent.query if intent.query in ("next", "last") else ""
+        )
     if intent.action == "write_weekly":
         return write_weekly_text(intent.query)
     if intent.action == "identity":
