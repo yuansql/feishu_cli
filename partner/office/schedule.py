@@ -146,7 +146,7 @@ def serve_plist_body(feishu_bin: str, path_value: str, env: dict[str, str]) -> s
 
 
 def _serve_env() -> dict[str, str]:
-    from . import ids as _ids
+    from ..core import ids as _ids
 
     _ids.reload_identity()
     return {

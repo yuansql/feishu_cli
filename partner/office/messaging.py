@@ -362,10 +362,20 @@ def _with_inbox(body: str) -> str:
         return body
     return body.rstrip() + '\n\n【有人找你】\n' + format_inbox_digest(items)
 
+def _send_args(chat_id: str) -> list[str]:
+    """Pick --chat-id / --user-id based on id prefix for lark-cli messages-send."""
+    cid = (chat_id or '').strip()
+    if cid.startswith('ou_'):
+        return ['--user-id', cid]
+    if cid.startswith('oc_') or cid:
+        return ['--chat-id', cid]
+    return ['--chat-id', cid]
+
+
 def send_text(chat_id: str, text: str, *, as_identity: str='bot') -> str:
-    if not chat_id or not text:
+    if not text:
         return '用法：发 oc_xxx 文本'
-    payload = run_lark(['im', '+messages-send', '--chat-id', chat_id, '--text', text], as_identity=as_identity)
+    payload = run_lark(['im', '+messages-send', *_send_args(chat_id), '--text', text], as_identity=as_identity)
     if payload.get('ok'):
         return '已发送。'
     return format_lark_error(payload)
@@ -373,7 +383,7 @@ def send_text(chat_id: str, text: str, *, as_identity: str='bot') -> str:
 def send_card(chat_id: str, card: dict[str, Any], *, as_identity: str='bot') -> str:
     if not chat_id or not card:
         return '卡片缺少会话或内容'
-    payload = run_lark(['im', '+messages-send', '--chat-id', chat_id, '--msg-type', 'interactive', '--content', json.dumps(card, ensure_ascii=False)], as_identity=as_identity)
+    payload = run_lark(['im', '+messages-send', *_send_args(chat_id), '--msg-type', 'interactive', '--content', json.dumps(card, ensure_ascii=False)], as_identity=as_identity)
     if payload.get('ok'):
         return '已发送。'
     return format_lark_error(payload)

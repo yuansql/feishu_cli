@@ -109,6 +109,38 @@ def _format_result(task: dict[str, Any]) -> str:
     return "\n".join(lines).strip()
 
 
+def format_patches_text(task: dict[str, Any]) -> str:
+    """Format an Agent v2 task and its intent patches for CLI output."""
+    task_id = str(task.get("id") or "")
+    status = str(task.get("status") or "")
+    goal = str(task.get("goal") or "").strip() or "(无目标)"
+    lines = [
+        f"任务 {task_id} · {status}",
+        f"目标：{goal}",
+    ]
+    patches = list(task.get("intent_patches") or [])
+    if patches:
+        lines.append("")
+        lines.append(f"意图补丁 {len(patches)} 条：")
+        for idx, p in enumerate(patches, 1):
+            action = str(p.get("action") or "append")
+            author = str(p.get("sender_name") or p.get("author_open_id") or "某人")
+            text = str(p.get("text") or "").strip() or "(无内容)"
+            merged = "已合并" if p.get("merged") else "待合并"
+            lines.append(f"  {idx}. [{action}] {author} · {merged}")
+            lines.append(f"     {text}")
+    else:
+        lines.append("")
+        lines.append("暂无意图补丁。")
+    observations = list(task.get("observations") or [])
+    if observations:
+        lines.append("")
+        lines.append(f"当前 observations {len(observations)} 条：")
+        for item in observations:
+            lines.append(f"- {item}")
+    return "\n".join(lines)
+
+
 def _apply_loop_result(task: dict[str, Any], final: dict[str, Any]) -> dict[str, Any]:
     task["observations"] = list(final.get("observations") or [])
     task["status"] = str(final.get("status") or task.get("status") or "done")

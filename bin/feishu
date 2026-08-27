@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PYTHON="${FEISHU_PARTNER_PYTHON:-/Users/wumm/.workbuddy/binaries/python/envs/feishu_partner/bin/python3}"
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONUNBUFFERED=1
-exec python3 -u -m partner "$@"
+exec "$PYTHON" -u -m partner "$@"
