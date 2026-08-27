@@ -371,6 +371,8 @@ class FormatBriefTests(unittest.TestCase):
                         "title": "回复胡柳斌",
                         "reason": "卡测试排查",
                         "kind": "reply",
+                        "key": "om:p1",
+                        "link": "https://applink.feishu.cn/client/chat/open?openChatId=oc_x&position=om_p1",
                     },
                 ],
                 "week_notes": [],
@@ -399,6 +401,11 @@ class FormatBriefTests(unittest.TestCase):
         self.assertIn("回复胡柳斌", blob)
         self.assertNotIn("研发部周会（15:30–16:30）", blob)
         self.assertIn("'tag': 'button'", blob)
+        # Priorities with a link should render an "打开消息" jump button
+        # alongside the "完成" callback button.
+        self.assertIn("'content': '打开消息'", blob)
+        self.assertIn("'content': '完成'", blob)
+        self.assertIn("https://applink.feishu.cn/client/chat/open?openChatId=oc_x&position=om_p1", blob)
         self.assertFalse(any(el.get("tag") == "tag" for el in card["elements"]))
         self.assertFalse(any(el.get("tag") == "note" for el in card["elements"]))
 
