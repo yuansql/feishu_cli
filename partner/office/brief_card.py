@@ -36,7 +36,17 @@ def _chip(text: str, color: str) -> str:
 
 
 def _tag(text: str, color: str = "grey") -> dict[str, Any]:
-    return {"tag": "tag", "text": {"tag": "plain_text", "content": text}, "color": color}
+    # schema 2.0 does not support the <tag> element; emulate with colored markdown.
+    color_map = {
+        "red": "#F53F3F",
+        "orange": "#FF7D00",
+        "yellow": "#FFC300",
+        "green": "#00B42A",
+        "blue": "#165DFF",
+        "grey": "#86909C",
+    }
+    hex_color = color_map.get(color, color)
+    return _md(f"**<font color='{hex_color}'>{text}</font>**")
 
 
 def _icon_text(text: str, icon_token: str) -> dict[str, Any]:
@@ -68,7 +78,6 @@ def _stat_card(number: int, label: str, color: str) -> dict[str, Any]:
 def _overview_columns(progressed: int, unreplied: int, meetings: int) -> dict[str, Any]:
     return {
         "tag": "column_set",
-        "horizontal_rule": {"style": 1, "color": "0x0000000D"},
         "columns": [
             _stat_card(progressed, "昨日推进", "green"),
             _stat_card(unreplied, "待回复", "orange" if unreplied else "grey"),
@@ -85,7 +94,16 @@ def _section_header(title: str, subtitle: str = "", *, icon: str = "") -> dict[s
 
 
 def _note_box(text: str, color: str = "grey") -> dict[str, Any]:
-    return {"tag": "note", "elements": [_plain(text)], "color": color}
+    # schema 2.0 note is unsupported; render as a bordered div-like markdown block.
+    color_map = {
+        "red": "#F53F3F",
+        "orange": "#FF7D00",
+        "yellow": "#FFC300",
+        "green": "#00B42A",
+        "blue": "#165DFF",
+        "grey": "#86909C",
+    }
+    return _md(f"<font color='{color_map.get(color, color)}'>▌</font> {text}")
 
 
 def _link(title: str, url: str) -> str:
@@ -156,7 +174,6 @@ def _priority_blocks(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         out.append(
             {
                 "tag": "column_set",
-                "horizontal_rule": {"style": 2, "color": "0x0000000A"},
                 "columns": [
                     {
                         "tag": "column",
@@ -189,6 +206,7 @@ def _priority_blocks(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _pending_blocks(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Render pending @ items as note blocks. Schema 2.0 action cannot live inside column_set."""
     out: list[dict[str, Any]] = []
     for item in items[:5]:
         who = str(item.get("sender_name") or "").strip()
@@ -197,51 +215,14 @@ def _pending_blocks(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         tag = str(item.get("tag") or "")
         head = f"**{who}** · {where}" if who else f"**{where}**"
         body = text
+        link = str(item.get("link") or "").strip()
+        if link and link not in body:
+            body += f"  [{_chip('打开', 'blue')}]({link})"
         if tag:
             body += f"  {_chip(tag, 'grey')}"
-
-        buttons: list[dict[str, Any]] = []
-        link = str(item.get("link") or "").strip()
-        if link:
-            buttons.append(_open_btn("去看", link, kind="primary"))
-        key = str(item.get("key") or "")
-        if key:
-            buttons.append(
-                {
-                    "tag": "button",
-                    "text": {"tag": "plain_text", "content": "✅ 已处理"},
-                    "type": "default",
-                    "size": "small",
-                    "value": {"act": "done", "key": key},
-                    "behaviors": [
-                        {"type": "callback", "value": {"act": "done", "key": key}}
-                    ],
-                }
-            )
-        out.append(
-            {
-                "tag": "column_set",
-                "horizontal_rule": {"style": 2, "color": "0x0000000A"},
-                "columns": [
-                    {
-                        "tag": "column",
-                        "width": "weighted",
-                        "weight": 6,
-                        "elements": [
-                            _md(head),
-                            _md(f"<font color='grey'>{body}</font>", size="notation"),
-                        ],
-                    },
-                    {
-                        "tag": "column",
-                        "width": "weighted",
-                        "weight": 4,
-                        "vertical_align": "center",
-                        "elements": [{"tag": "action", "actions": buttons}] if buttons else [],
-                    },
-                ],
-            }
-        )
+        content = f"{head}\n<font color='grey' size=12>{body}</font>"
+        out.append(_note_box(content, "grey"))
+        # Interactions removed: schema 2.0 action element is unsupported by bot p2p send.
     return out
 
 
@@ -298,9 +279,6 @@ def brief_card(data: dict[str, Any], *, followups: str = "") -> dict[str, Any]:
     if entries:
         today_elements.append(_md("**今日日程**"))
         today_elements.extend(_md(_agenda_line(e)) for e in entries)
-        agenda_btns = _agenda_actions(entries)
-        if agenda_btns:
-            today_elements.append({"tag": "action", "actions": agenda_btns})
     elif week_notes:
         today_elements.append(_md("**本周值得关注**"))
         for item in week_notes:
@@ -407,9 +385,6 @@ def day_work_card(
 
     if len(body_lines) > 1:
         elements.append(_md("\n".join(body_lines)))
-        agenda_btns = _agenda_actions(entries)
-        if agenda_btns:
-            elements.append({"tag": "action", "actions": agenda_btns})
 
     if not tasks and entries and not work:
         footer = (
@@ -417,7 +392,7 @@ def day_work_card(
             if tomorrow
             else "没有卡人的待办，先把今天的会开完。"
         )
-        elements.append(_note_box(footer, color="blue"))
+        elements.append(_note_box(footer, "blue"))
 
     if not elements:
         elements.append(_note_box("这天没有日程，跟进账里也没有未闭环的活。"))
