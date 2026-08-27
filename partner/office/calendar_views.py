@@ -41,8 +41,21 @@ def _next_week_bounds(now: datetime | None=None) -> tuple[datetime, datetime]:
     start, end = _week_bounds(now)
     return (start + timedelta(days=7), end + timedelta(days=7))
 
+def _prev_week_bounds(now: datetime | None=None) -> tuple[datetime, datetime]:
+    start, end = _week_bounds(now)
+    return (start - timedelta(days=7), end - timedelta(days=7))
+
+
 def weekly_text(focus: str='') -> str:
     from .messaging import _with_inbox
+    from ..routing.resolved import resolved_in_window
+
+    if focus == 'last':
+        start, end = _prev_week_bounds()
+        agenda = _agenda_range(start, end)
+        tasks = run_lark(['task', '+get-my-tasks', '--complete=true', '--page-limit', '30'], as_identity='user')
+        resolved = resolved_in_window(start, end)
+        return _with_inbox(format_weekly_retrospective(start, end, agenda, tasks, resolved, focus='last'))
 
     start, end = _week_bounds()
     agenda = _agenda_range(start, end)

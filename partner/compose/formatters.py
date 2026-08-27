@@ -457,6 +457,74 @@ def _weekly_doc_refs(payload: dict[str, Any], limit: int = 2) -> list[tuple[str,
     return [(title, url) for _, title, url in scored[:limit]]
 
 
+def format_weekly_retrospective(
+    start: datetime,
+    end: datetime,
+    agenda_payload: dict[str, Any],
+    tasks_payload: dict[str, Any],
+    resolved_items: list[dict[str, Any]],
+    *,
+    focus: str = "last",
+) -> str:
+    """First-person retrospective for LAST week: calendar meetings + completed tasks + resolved pending."""
+    errors: list[str] = []
+    lines = [
+        f"{_slash_date(start)}–{_slash_date(end)} 上周回顾：",
+        "",
+        "【已闭环】",
+    ]
+
+    # Resolved from daily brief / card buttons
+    if resolved_items:
+        for row in resolved_items[:12]:
+            chat = str(row.get("chat_name") or "群")
+            snippet = str(row.get("snippet") or "").strip()
+            tag = str(row.get("tag") or "").strip()
+            link = str(row.get("link") or "").strip()
+            parts = [f"{chat}：{snippet}"] if snippet else [chat]
+            if tag:
+                parts.append(f"（{tag}）")
+            line = " ".join(parts)
+            if link:
+                line += f"  {link}"
+            lines.append(f"- {line}")
+    else:
+        lines.append("- 本地没记录到上周手动销账的待办。")
+
+    # Completed Feishu tasks
+    if tasks_payload.get("ok") is False:
+        errors.append(format_lark_error(tasks_payload))
+    else:
+        tasks = [item for item in _items(tasks_payload, "items", "tasks") if isinstance(item, dict)]
+        if tasks:
+            for item in tasks[:10]:
+                summary = item.get("summary") or item.get("title") or "(无标题)"
+                completed = item.get("completed_at") or item.get("complete_time") or ""
+                when = str(completed)[:10] if completed else ""
+                suffix = f"，完成 {when}" if when else ""
+                lines.append(f"- {summary}{suffix}")
+
+    # Calendar events
+    if agenda_payload.get("ok") is False:
+        errors.append(format_lark_error(agenda_payload))
+    else:
+        events = [item for item in _items(agenda_payload, "events", "items", "calendar_events") if isinstance(item, dict)]
+        if events:
+            lines.append("")
+            lines.append("【会议/日程】")
+            for item in events[:15]:
+                day = _event_day(item)
+                title = _event_title(item)
+                when = _when(item.get("start_time") or item.get("start"))
+                extra = f"（{when}）" if when else ""
+                lines.append(f"- {day} {title}{extra}".strip())
+
+    if errors:
+        lines += ["", "（接口说明）"]
+        lines.extend(errors)
+    return "\n".join(lines)
+
+
 def format_weekly_human(
     start: datetime,
     end: datetime,

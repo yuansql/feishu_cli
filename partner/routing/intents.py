@@ -84,6 +84,7 @@ _INBOX_EXACT = {
 _URL_RE = re.compile(r"https://[^\s]*feishu\.cn/[^\s]+")
 _WEEKLY_HINTS = ("人机", "像人写", "像人一样", "工作内容")
 _WEEKLY_SCOPE = ("本周", "这周", "这星期")
+_LAST_WEEK_SCOPE = ("上周", "上个星期", "上星期", "上个周")
 _WEEKLY_TOPIC = ("工作", "内容", "安排", "总结", "查", "周报", "计划")
 _NEXT_WEEK_EXACT = {
     "下周",
@@ -211,6 +212,14 @@ def looks_like_week_activity(raw: str) -> bool:
     return bool(re.search(r"(?:干|做|忙|完成).{0,2}(?:什么|啥|哪些)", text))
 
 
+def looks_like_last_week_activity(raw: str) -> bool:
+    """「上周做了什么 / 完成了什么」→ retrospective, not resolve."""
+    text = _folded(raw)
+    if not any(scope in text for scope in _LAST_WEEK_SCOPE):
+        return False
+    return bool(re.search(r"(?:干|做|忙|完成).{0,2}(?:什么|啥|哪些)", text))
+
+
 def looks_like_write_weekly(raw: str) -> bool:
     text = _folded(raw)
     if re.match(
@@ -333,6 +342,8 @@ def looks_like_weekly_talk(raw: str) -> bool:
     if looks_like_weekly_tasks(raw):
         return False
     if looks_like_week_activity(raw):
+        return True
+    if looks_like_last_week_activity(raw):
         return True
     if raw in _WEEKLY_EXACT or raw in _WEEKLY_CONTINUE:
         return True
@@ -783,6 +794,8 @@ def parse_intent(text: str) -> Intent:
         return Intent(action="weekly_tasks")
     if looks_like_today_recap(raw):
         return Intent(action="today_recap")
+    if looks_like_last_week_activity(raw):
+        return Intent(action="weekly", query="last")
     if looks_like_week_activity(raw):
         return Intent(action="weekly")
     if folded in _TODAY_EXACT or key in _TODAY_EXACT:

@@ -194,13 +194,11 @@ def pending_path() -> Path:
     return _DEFAULT_PENDING
 
 
-def is_resolved(key: str) -> bool:
-    token = (key or "").strip()
-    if not token:
-        return False
+def load_resolved() -> list[dict[str, Any]]:
     path = resolved_path()
     if not path.exists():
-        return False
+        return []
+    out: list[dict[str, Any]] = []
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line:
@@ -209,7 +207,47 @@ def is_resolved(key: str) -> bool:
             row = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if isinstance(row, dict) and str(row.get("key") or "") == token:
+        if isinstance(row, dict):
+            out.append(row)
+    return out
+
+
+def resolved_in_window(
+    start: datetime | None = None,
+    end: datetime | None = None,
+) -> list[dict[str, Any]]:
+    rows = load_resolved()
+    if start is None and end is None:
+        return rows
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        ts = _parse_resolved_ts(row.get("ts"))
+        if ts is None:
+            continue
+        if start is not None and ts < start:
+            continue
+        if end is not None and ts > end:
+            continue
+        out.append(row)
+    return out
+
+
+def _parse_resolved_ts(raw: Any) -> datetime | None:
+    text = str(raw or "")
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def is_resolved(key: str) -> bool:
+    token = (key or "").strip()
+    if not token:
+        return False
+    for row in load_resolved():
+        if str(row.get("key") or "") == token:
             return True
     return False
 
@@ -220,6 +258,8 @@ def mark_resolved(
     source: str,
     chat_name: str = "",
     snippet: str = "",
+    tag: str = "",
+    link: str = "",
 ) -> bool:
     token = (key or "").strip()
     if not token:
@@ -234,7 +274,9 @@ def mark_resolved(
             "key": token,
             "source": source,
             "chat_name": chat_name,
-            "snippet": snippet[:80],
+            "snippet": snippet[:160],
+            "tag": tag,
+            "link": link,
             "ts": datetime.now(CN_TZ).isoformat(timespec="seconds"),
         }
         with dest.open("a", encoding="utf-8") as fh:
@@ -695,6 +737,8 @@ def resolve_text(raw: str) -> str:
                 source="text",
                 chat_name=str(item.get("chat_name") or ""),
                 snippet=str(item.get("text") or ""),
+                tag=str(item.get("tag") or ""),
+                link=str(item.get("link") or ""),
             ):
                 closed += 1
         if not closed:
@@ -761,6 +805,8 @@ def resolve_text(raw: str) -> str:
         source="text",
         chat_name=name,
         snippet=str(item.get("text") or ""),
+        tag=str(item.get("tag") or ""),
+        link=str(item.get("link") or ""),
     ):
         return "没记下，请再说一遍「已处理」。"
     return f"已记下，明早简报不再列 {name} 那条。"
@@ -769,11 +815,22 @@ def resolve_text(raw: str) -> str:
 def confirm_card(key: str) -> str:
     items = load_pending()
     name = "那条"
+    tag = ""
+    link = ""
     for item in items:
         if str(item.get("key") or "") == key:
             name = str(item.get("chat_name") or name)
+            tag = str(item.get("tag") or "")
+            link = str(item.get("link") or "")
             break
-    if not mark_resolved(key, source="card", chat_name=name):
+    snippet = ""
+    for item in items:
+        if str(item.get("key") or "") == key:
+            snippet = str(item.get("text") or "")
+            break
+    if not mark_resolved(
+        key, source="card", chat_name=name, snippet=snippet, tag=tag, link=link
+    ):
         return "没记下，请再说一遍「已处理」。"
     return f"已记下，明早简报不再列 {name} 那条。"
 
