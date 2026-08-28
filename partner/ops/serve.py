@@ -13,6 +13,7 @@ from pathlib import Path
 
 from ..core.ack import ACK_EMOJI, ack_line, should_ack_text
 from ..actions import add_reaction, dispatch, send_card, send_style_card, send_text
+from ..office.messaging import load_card_cache
 from ..office.brief import already_pushed, push_brief
 from ..core.events import (
     CardAction,
@@ -114,9 +115,10 @@ def _disable_card_button(
         return
     from ..core.lark import run_lark
 
-    if card:
-        _card = card
-    else:
+    _card = card
+    if not _card:
+        _card = load_card_cache(message_id)
+    if not _card:
         payload = run_lark(
             ["im", "+messages-mget", "--message-ids", message_id, "--no-reactions"],
             as_identity="bot",
@@ -341,7 +343,7 @@ def _handle_line(line: str, seen: set[str]) -> None:
             result = send_checked(act.chat_id or P2P_CHAT_ID, reply, as_identity="bot")
             _log("followup-card: " + result + " " + reply)
             if act.act == "fu_done" and act.open_message_id:
-                _disable_card_button(act.open_message_id, act.key, "已完成", card=act.card_content)
+                _disable_card_button(act.open_message_id, act.key, "已完成")
                 return
         if act.act == "approve" or (act.act == "done" and act.task_id):
             _handle_approval_card(act, approved=True)
@@ -356,7 +358,7 @@ def _handle_line(line: str, seen: set[str]) -> None:
         result = send_checked(act.chat_id or P2P_CHAT_ID, reply, as_identity="bot")
         _log("card: " + result + " " + reply)
         if act.open_message_id:
-            _disable_card_button(act.open_message_id, act.key, "已处理", card=act.card_content)
+            _disable_card_button(act.open_message_id, act.key, "已处理")
         return
     msg = extract_inbound_message(payload)
     if msg is None:

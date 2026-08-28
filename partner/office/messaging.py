@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from datetime import timedelta, timezone
+from pathlib import Path
 from typing import Any
 from ..compose.formatters import _chat_tokens, _items, format_chats, format_lark_error
 from ..core.inbox import recent_items
@@ -385,8 +386,34 @@ def send_card(chat_id: str, card: dict[str, Any], *, as_identity: str='bot') -> 
         return '卡片缺少会话或内容'
     payload = run_lark(['im', '+messages-send', *_send_args(chat_id), '--msg-type', 'interactive', '--content', json.dumps(card, ensure_ascii=False)], as_identity=as_identity)
     if payload.get('ok'):
+        mid = str((payload.get('data') or {}).get('message_id') or '')
+        if mid:
+            _cache_card(mid, card)
         return '已发送。'
     return format_lark_error(payload)
+
+
+_CARD_CACHE_DIR = Path.home() / '.feishu-partner' / 'card-cache'
+
+
+def _cache_card(message_id: str, card: dict[str, Any]) -> None:
+    try:
+        _CARD_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        (_CARD_CACHE_DIR / f'{message_id}.json').write_text(
+            json.dumps(card, ensure_ascii=False), encoding='utf-8'
+        )
+    except OSError:
+        pass
+
+
+def load_card_cache(message_id: str) -> dict[str, Any] | None:
+    path = _CARD_CACHE_DIR / f'{message_id}.json'
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError):
+        return None
 
 def _task_lines(payload: dict[str, Any]) -> list[str]:
     if payload.get('ok') is False:
