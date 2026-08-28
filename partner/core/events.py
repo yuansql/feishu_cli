@@ -18,6 +18,7 @@ class CardAction:
     task_id: str = ""
     message_id: str = ""
     open_message_id: str = ""
+    card_content: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -90,6 +91,17 @@ def extract_card_action(payload: Any) -> CardAction | None:
         or value.get("message_id")
         or ""
     )
+    card_content_raw = merged.get("card_content")
+    card_content: dict[str, Any] = {}
+    if isinstance(card_content_raw, dict):
+        card_content = card_content_raw
+    elif isinstance(card_content_raw, str) and card_content_raw.strip():
+        try:
+            loaded = json.loads(card_content_raw)
+            if isinstance(loaded, dict):
+                card_content = loaded
+        except json.JSONDecodeError:
+            pass
     return CardAction(
         chat_id=str(merged.get("chat_id") or merged.get("open_chat_id") or ""),
         operator_id=str(merged.get("operator_id") or ""),
@@ -100,6 +112,7 @@ def extract_card_action(payload: Any) -> CardAction | None:
         task_id=str(value.get("task_id") or ""),
         message_id=card_message_id,
         open_message_id=card_message_id,
+        card_content=card_content,
     )
 
 
