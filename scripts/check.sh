@@ -1,7 +1,16 @@
 #!/usr/bin/env bash
 # Agent / delivery gate: unit tests then test-identity smoke.
 # Usage: bash scripts/check.sh [--live-write]
+#        bash scripts/check.sh red|green <command> [args...]
 set -euo pipefail
+if [[ "${1:-}" == "red" || "${1:-}" == "green" ]]; then
+  TW="${FP_TRIPWIRE:-$HOME/.self-improving/bin/fp-tripwire}"
+  if [[ ! -x "$TW" ]]; then
+    echo "missing $TW" >&2
+    exit 1
+  fi
+  exec "$TW" "$@"
+fi
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 cd "$ROOT"

@@ -167,12 +167,19 @@ def _row_with_action(
     *,
     use_followup: bool = False,
 ) -> list[dict[str, Any]]:
-    """Schema 1.0 block: text line followed by full-width action buttons."""
-    out: list[dict[str, Any]] = [{"tag": "div", "text": _lark_md(line_text)}]
+    """Schema 1.0 block: text line followed by an action block of buttons.
+
+    Feishu schema 1.0 requires callback buttons to live inside an 'action'
+    element; standalone buttons at the card root are not rendered as clickable.
+    """
+    actions: list[dict[str, Any]] = []
     if link:
-        out.append(_open_button(link, "打开消息"))
-    out.append(_fu_done_button(key, label) if use_followup else _card_button(key, label))
-    return out
+        actions.append(_open_button(link, "打开消息"))
+    actions.append(_fu_done_button(key, label) if use_followup else _card_button(key, label))
+    return [
+        {"tag": "div", "text": _lark_md(line_text)},
+        {"tag": "action", "actions": actions},
+    ]
 
 
 def _priority_blocks(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:

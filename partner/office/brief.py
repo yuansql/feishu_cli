@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 import fcntl
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -87,6 +88,39 @@ def _chat_messages_since(chat_id: str, start: datetime, end: datetime) -> list[d
 _QUESTION = ("?", "？", "还是", "哪个", "哪条", "哪边", "什么意思", "是不是", "对吗", "对么")
 _DONE = ("已同步", "已处理", "已改", "已发", "已回", "已合并", "搞定", "做完", "提交了", "合并了")
 _ACK = ("好的", "收到", "嗯", "行", "ok", "OK", "没问题", "可以")
+_SELF_RESOLVED = (
+    "不用了",
+    "不需要了",
+    "没事了",
+    "解决了",
+    "已解决",
+    "已搞定",
+    "已确认",
+    "就这么定了",
+    "先这样",
+    "先不用",
+    "先不",
+    "先停了",
+    "暂停",
+    "取消",
+    "作罢",
+    "ignore",
+)
+
+
+def _looks_like_self_resolved(text: str) -> bool:
+    """True when the sender has already closed the topic themselves."""
+    blob = (text or "").strip()
+    if not blob:
+        return False
+    # Positive: sender says "不用了 / 定了 / 解决了 / 先这样 / 先不用".
+    if any(mark in blob for mark in _SELF_RESOLVED):
+        return True
+    # Positive: short acknowledgment-only messages (e.g., "好的", "ok").
+    stripped = re.sub(r"[。！？.!?~～\s]+$", "", blob)
+    if stripped in _ACK or stripped.lower() in {"ok", "yes", "yep", "没问题", "可以", "行", "嗯"}:
+        return True
+    return False
 
 
 def _looks_like_question(text: str) -> bool:
@@ -672,6 +706,8 @@ def _collect(now: datetime) -> dict[str, Any]:
             content = hit.get("content")
             raw = content.get("text") if isinstance(content, dict) else str(content or "")
             raw = (raw or "").replace("\n", " ").strip()
+            if _looks_like_self_resolved(raw):
+                continue
             state = mention_state(hit, raw)
             if state == "answered":
                 continue
@@ -702,6 +738,8 @@ def _collect(now: datetime) -> dict[str, Any]:
         if ts[:10] != workday.isoformat():
             continue
         raw = (item.get("text") or "").replace("\n", " ").strip()
+        if _looks_like_self_resolved(raw):
+            continue
         state = mention_state(item, raw)
         if state == "answered":
             continue

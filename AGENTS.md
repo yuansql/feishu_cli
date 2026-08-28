@@ -14,6 +14,14 @@ P2P 认不出意图 → Hermes 分类/归纳，禁止文档关键词澄清。范
 
 ## 校验
 
+全力改可断言行为（规则 / 契约 / 变换 / 校验）时，写盘前先绊线（同一 argv，必须先红后绿；胶水/改文案跳过）：
+
+```sh
+bash scripts/check.sh red <探针>
+# …产品补丁…
+bash scripts/check.sh green <同一探针>
+```
+
 改 `partner/` 或路由后，宣称完成前：
 
 ```sh
