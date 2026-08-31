@@ -12,14 +12,19 @@ from partner.core.events import extract_card_action, extract_inbound_message
 from partner.routing.intents import parse_intent
 from partner.compose.llm import should_partner
 from partner.routing.resolved import (
+    LOGIC_EPOCH,
+    gc_resolved,
     is_resolved,
     load_pending,
+    load_resolved,
     mark_resolved,
     match_pending,
     pending_card,
     pending_key,
     resolve_text,
     save_pending,
+    unresolve,
+    unresolve_by_hint,
 )
 
 
@@ -592,6 +597,85 @@ class CardTests(unittest.TestCase):
         assert act is not None
         self.assertEqual(act.key, "om:om_app1")
         self.assertEqual(act.operator_id, "ou_user")
+
+
+class LedgerLeaseTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        os.environ["FEISHU_PARTNER_RESOLVED"] = str(Path(self.tmp.name) / "resolved.jsonl")
+        self.addCleanup(os.environ.pop, "FEISHU_PARTNER_RESOLVED", None)
+
+    def test_old_epoch_entry_expires_after_bump(self) -> None:
+        key = pending_key(message_id="om_old")
+        path = Path(os.environ["FEISHU_PARTNER_RESOLVED"])
+        row = {
+            "key": key,
+            "source": "text",
+            "chat_name": "APP沟通群",
+            "snippet": "旧判断",
+            "ts": "2026-08-20T10:00:00+08:00",
+            "decided_at": "2026-08-20T10:00:00+08:00",
+            "logic_epoch": LOGIC_EPOCH - 1,
+        }
+        path.write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
+        self.assertFalse(is_resolved(key))
+
+    def test_fresh_entry_is_alive(self) -> None:
+        key = pending_key(message_id="om_fresh")
+        mark_resolved(key, source="card", chat_name="X群")
+        self.assertTrue(is_resolved(key))
+
+    def test_unresolve_reopens_item(self) -> None:
+        key = pending_key(message_id="om_reopen")
+        mark_resolved(key, source="card", chat_name="APP沟通群", snippet="同步主分支")
+        self.assertTrue(is_resolved(key))
+        removed = unresolve([key])
+        self.assertEqual(removed, 1)
+        self.assertFalse(is_resolved(key))
+
+    def test_unresolve_by_hint_matches_chat_name(self) -> None:
+        key = pending_key(message_id="om_hint")
+        mark_resolved(key, source="text", chat_name="APP沟通群", snippet="同步主分支")
+        removed, matches = unresolve_by_hint("APP沟通群")
+        self.assertEqual(removed, 1)
+        self.assertEqual(len(matches), 1)
+        self.assertFalse(is_resolved(key))
+
+    def test_resolve_text_reopens_when_user_says_not_done(self) -> None:
+        key = pending_key(message_id="om_text_reopen")
+        mark_resolved(key, source="text", chat_name="APP沟通群", snippet="同步主分支")
+        reply = resolve_text("APP沟通群那条还没解决，撤销")
+        self.assertIn("撤销", reply)
+        self.assertFalse(is_resolved(key))
+
+    def test_gc_drops_stale_rows(self) -> None:
+        path = Path(os.environ["FEISHU_PARTNER_RESOLVED"])
+        rows = [
+            {
+                "key": "om:stale",
+                "source": "text",
+                "ts": "2026-01-01T00:00:00+08:00",
+                "decided_at": "2026-01-01T00:00:00+08:00",
+                "logic_epoch": LOGIC_EPOCH,
+            },
+            {
+                "key": "om:fresh",
+                "source": "text",
+                "ts": "2026-08-30T12:00:00+08:00",
+                "decided_at": "2026-08-30T12:00:00+08:00",
+                "logic_epoch": LOGIC_EPOCH,
+            },
+        ]
+        path.write_text(
+            "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows),
+            encoding="utf-8",
+        )
+        kept, dropped = gc_resolved(dry_run=False)
+        self.assertEqual(dropped, 1)
+        self.assertEqual(kept, 1)
+        remaining = {r["key"] for r in load_resolved()}
+        self.assertEqual(remaining, {"om:fresh"})
 
 
 if __name__ == "__main__":

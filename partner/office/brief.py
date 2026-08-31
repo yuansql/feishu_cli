@@ -19,6 +19,7 @@ from ..routing.resolved import is_resolved, pending_key, save_pending
 CN_TZ = timezone(timedelta(hours=8))
 STAMP = Path.home() / ".feishu-partner" / "brief-sent.on"
 _BLOCK = ("请", "同步", "确认", "帮忙", "对齐", "卡", "阻塞", "评审", "提测", "回复")
+MENTIONS_PAGE = 20  # lark-cli +messages-search hard cap; we probe saturation against it.
 
 
 def last_workday(now: datetime) -> date:
@@ -85,6 +86,83 @@ def _chat_messages_since(chat_id: str, start: datetime, end: datetime) -> list[d
     return [item for item in hits if isinstance(item, dict)]
 
 
+def _extract_messages(payload: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Normalise a lark-cli list payload into a list of message dicts."""
+    if not isinstance(payload, dict):
+        return []
+    hits = payload.get("data")
+    if isinstance(hits, dict):
+        hits = hits.get("messages") or hits.get("items") or []
+    if not isinstance(hits, list):
+        return []
+    return [item for item in hits if isinstance(item, dict)]
+
+
+def _next_page_token(payload: dict[str, Any] | None) -> str:
+    """Best-effort pagination token. Empty string ⇒ no more pages (or unknown)."""
+    if not isinstance(payload, dict):
+        return ""
+    data = payload.get("data")
+    if isinstance(data, dict):
+        token = data.get("page_token") or data.get("next_page_token")
+        if isinstance(token, str) and token:
+            return token
+    return ""
+
+
+def _fetch_group_mentions(start: datetime, end: datetime) -> tuple[list[dict[str, Any]], bool, bool]:
+    """Pull @-mentions in a window. Returns (hits, truncated, fetch_failed).
+
+    ``truncated`` means the result hit the page-size cap (more may exist);
+    ``fetch_failed`` means the API errored and the list is definitely partial.
+    We auto-paginate only when the API exposes a real page token, so a busy
+    day degrades to an honest "可能未采集全" banner instead of silently
+    dropping threads.
+    """
+    def _call(*, token: str = "") -> dict[str, Any]:
+        args = [
+            "im",
+            "+messages-search",
+            "--at-chatter-ids",
+            USER_OPEN_ID,
+            "--chat-type",
+            "group",
+            "--exclude-sender-type",
+            "bot",
+            "--start",
+            start.isoformat(),
+            "--end",
+            end.isoformat(),
+            "--page-size",
+            str(MENTIONS_PAGE),
+            "--no-reactions",
+        ]
+        if token:
+            args += ["--page-token", token]
+        return run_lark(args, as_identity="user")
+
+    first = _call()
+    if first.get("ok") is False:
+        return [], False, True
+    hits = _extract_messages(first)
+    truncated = len(hits) >= MENTIONS_PAGE
+    token = _next_page_token(first)
+    pages = 0
+    while token and pages < 4:
+        page = _call(token=token)
+        if page.get("ok") is False:
+            # Partial success: keep what we have but flag the gap.
+            return hits, True, True
+        more = _extract_messages(page)
+        if not more:
+            break
+        hits.extend(more)
+        truncated = len(more) >= MENTIONS_PAGE
+        token = _next_page_token(page)
+        pages += 1
+    return hits, truncated, False
+
+
 _QUESTION = ("?", "？", "还是", "哪个", "哪条", "哪边", "什么意思", "是不是", "对吗", "对么")
 _DONE = ("已同步", "已处理", "已改", "已发", "已回", "已合并", "搞定", "做完", "提交了", "合并了")
 _ACK = ("好的", "收到", "嗯", "行", "ok", "OK", "没问题", "可以")
@@ -120,6 +198,89 @@ def _looks_like_self_resolved(text: str) -> bool:
     stripped = re.sub(r"[。！？.!?~～\s]+$", "", blob)
     if stripped in _ACK or stripped.lower() in {"ok", "yes", "yep", "没问题", "可以", "行", "嗯"}:
         return True
+    return False
+
+
+def _is_bot_sender(msg: dict[str, Any]) -> bool:
+    sender = msg.get("sender")
+    if isinstance(sender, dict):
+        if sender.get("type") == "bot":
+            return True
+        if sender.get("is_bot"):
+            return True
+    return False
+
+
+def third_party_ack(
+    messages: list[dict[str, Any]],
+    *,
+    after: datetime,
+    exclude_id: str = "",
+    participants: set[str] | None = None,
+) -> bool:
+    """Whether a LICENSED third party gave an ack-like response.
+
+    After the user followed up (state == ``clarifying``), a third party's
+    ``ok`` / ``好的`` / ``收到`` settles the thread — but only if that person
+    is part of THIS thread (was @'d, or already spoke in it). A random
+    passer-by's one-word ``ok`` or a bot auto-reply must NOT close it.
+
+    Pass ``participants`` (open_ids + ``name:<display>`` handles) to enable the
+    licensing gate. When omitted, behaviour stays permissive (legacy callers).
+    """
+    for msg in messages:
+        if _is_bot_sender(msg):
+            continue
+        mid = str(msg.get("message_id") or "")
+        if exclude_id and mid == exclude_id:
+            continue
+        sender = msg.get("sender")
+        sid = sender.get("id") if isinstance(sender, dict) else msg.get("sender_id")
+        # Skip the user's own messages — handled separately.
+        if str(sid or "") == USER_OPEN_ID:
+            continue
+        when = parse_msg_time(msg.get("create_time") or msg.get("ts"))
+        if when is None or when < after:
+            continue
+        content = msg.get("content")
+        text = content.get("text") if isinstance(content, dict) else str(content or "")
+        text = (text or "").replace("\n", " ").strip()
+        if not text:
+            continue
+        name = sender.get("name") if isinstance(sender, dict) else msg.get("sender_name")
+        # License gate: only participants of this thread may settle it.
+        if participants is not None:
+            if (
+                str(sid or "") not in participants
+                and ("name:" + str(name or "")) not in participants
+            ):
+                continue
+        # Ultra-short ack pattern: ok / 好的 / 收到 / 1 / 👍 / etc.
+        cleaned = re.sub(r"[。！？.!?~～👍🙌✅\s]+$", "", text)
+        if (
+            cleaned in _ACK
+            or cleaned.lower() in {"ok", "yes", "yep", "1"}
+            or text.strip() in {"👍", "🙌", "✅", "+1"}
+        ):
+            return True
+        # Slightly longer but still clearly affirmative (and not a question).
+        if any(
+            mark in text
+            for mark in (
+                "没问题",
+                "可以",
+                "行",
+                "知道了",
+                "了解",
+                "明白",
+                "同意",
+                "参加",
+                "到时",
+                "准时",
+                "好的",
+            )
+        ) and not any(q in text for q in ("？", "?", "吗", "么", "哪个", "什么")):
+            return True
     return False
 
 
@@ -479,6 +640,7 @@ def format_daily_brief(
     week_notes: list[str],
     today_agenda: list[str] | None = None,
     long_term: list[str] | None = None,
+    notes: list[str] | None = None,
 ) -> str:
     lines = [f"📋 每日工作简报 · {cn_day(today)}"]
     showed_unreplied = bool(unreplied)
@@ -516,6 +678,8 @@ def format_daily_brief(
     elif week_notes:
         lines += ["", "【本周值得关注】"]
         lines.extend(f"- {item}" for item in week_notes)
+    if notes:
+        lines += ["", ".".join(notes)]
     if len(lines) == 1:
         lines += ["", "没有必须立刻排的事。"]
     return "\n".join(lines)
@@ -567,6 +731,50 @@ def _about_user(hit: dict[str, Any]) -> bool:
     text = hit.get("content")
     blob = text.get("text") if isinstance(text, dict) else str(text or "")
     return any(name and name in blob for name in USER_NAMES)
+
+
+def _thread_participants(
+    *,
+    item: dict[str, Any],
+    messages: list[dict[str, Any]],
+    after: datetime,
+    exclude_id: str,
+    user_id: str,
+) -> set[str]:
+    """Open IDs + name handles licensed to settle this @ thread.
+
+    Licensed = people @'d in the original mention, or people who already
+    spoke in the thread window (excluding the user). Stops a random
+    passer-by's ``ok`` from closing a thread they were never part of.
+    """
+    ids: set[str] = set()
+    for m in item.get("mentions") or []:
+        if not isinstance(m, dict):
+            continue
+        mid = m.get("id")
+        oid = mid.get("open_id") if isinstance(mid, dict) else mid
+        if oid:
+            ids.add(str(oid))
+        name = m.get("name")
+        if name:
+            ids.add("name:" + str(name))
+    for msg in messages:
+        mid = str(msg.get("message_id") or "")
+        if exclude_id and mid == exclude_id:
+            continue
+        sender = msg.get("sender")
+        sid = sender.get("id") if isinstance(sender, dict) else msg.get("sender_id")
+        when = parse_msg_time(msg.get("create_time") or msg.get("ts"))
+        if when is None or when < after:
+            continue
+        if str(sid or "") == user_id:
+            continue
+        if sid:
+            ids.add(str(sid))
+        name = sender.get("name") if isinstance(sender, dict) else msg.get("sender_name")
+        if name:
+            ids.add("name:" + str(name))
+    return ids
 
 
 def _collect(now: datetime) -> dict[str, Any]:
@@ -627,25 +835,8 @@ def _collect(now: datetime) -> dict[str, Any]:
         ["approval", "tasks", "query", "--topic", "1", "--page-size", "8"],
         as_identity="user",
     )
-    mentions = run_lark(
-        [
-            "im",
-            "+messages-search",
-            "--at-chatter-ids",
-            USER_OPEN_ID,
-            "--chat-type",
-            "group",
-            "--exclude-sender-type",
-            "bot",
-            "--start",
-            w_start.isoformat(),
-            "--end",
-            w_end.isoformat(),
-            "--page-size",
-            "20",
-            "--no-reactions",
-        ],
-        as_identity="user",
+    mentions, mentions_truncated, mentions_fetch_failed = _fetch_group_mentions(
+        w_start, w_end
     )
 
     progressed = [format_agenda_progress(entry) for entry in agenda_entries(y_agenda)]
@@ -676,13 +867,34 @@ def _collect(now: datetime) -> dict[str, Any]:
         when = parse_msg_time(item.get("create_time") or item.get("ts"))
         if not chat_id or when is None:
             return "none"
+        msgs = messages_for(chat_id, when)
         replies = user_reply_texts(
-            messages_for(chat_id, when),
+            msgs,
             after=when,
             user_id=USER_OPEN_ID,
             skip_id=str(item.get("message_id") or ""),
         )
-        return reply_status(ask, replies)
+        state = reply_status(ask, replies)
+        # If user followed up but we're still "clarifying", check whether a
+        # LICENSED third party has since acknowledged (e.g. 吴梦晨 says "ok").
+        # Licensed = was @'d in the ask, or already spoke in the thread — so a
+        # random passer-by's "ok" can't settle a thread they were never in.
+        if state == "clarifying":
+            participants = _thread_participants(
+                item=item,
+                messages=msgs,
+                after=when,
+                exclude_id=str(item.get("message_id") or ""),
+                user_id=USER_OPEN_ID,
+            )
+            if third_party_ack(
+                msgs,
+                after=when,
+                exclude_id=str(item.get("message_id") or ""),
+                participants=participants,
+            ):
+                state = "answered"
+        return state
 
     pending: list[dict[str, Any]] = []
     seen_keys: set[str] = set()
@@ -694,13 +906,7 @@ def _collect(now: datetime) -> dict[str, Any]:
         seen_keys.add(key)
         pending.append(item)
 
-    if mentions.get("ok") is not False:
-        hits = mentions.get("data")
-        if isinstance(hits, dict):
-            hits = hits.get("messages") or hits.get("items") or []
-        if not isinstance(hits, list):
-            hits = []
-        for hit in hits:
+    for hit in mentions:
             if not isinstance(hit, dict) or not _about_user(hit):
                 continue
             content = hit.get("content")
@@ -905,6 +1111,8 @@ def _collect(now: datetime) -> dict[str, Any]:
         "pending": pending[:8],
         "workday": workday.isoformat(),
         "today": today.isoformat(),
+        "truncated": mentions_truncated,
+        "fetch_failed": mentions_fetch_failed,
     }
 
 
@@ -928,6 +1136,15 @@ def collect_brief(now: datetime | None = None) -> dict[str, Any]:
     return _collect(now.astimezone(CN_TZ))
 
 
+def _collect_warnings(data: dict[str, Any]) -> list[str]:
+    out: list[str] = []
+    if data.get("fetch_failed"):
+        out.append("⚠️ 部分 @ 消息采集失败，今天的待处理列表可能不完整")
+    elif data.get("truncated"):
+        out.append("⚠️ 昨日 @ 消息较多，只采集到部分内容，请手动复核群聊")
+    return out
+
+
 def brief_text(now: datetime | None = None) -> str:
     now = now or datetime.now(CN_TZ)
     if now.tzinfo is None:
@@ -943,6 +1160,7 @@ def brief_text(now: datetime | None = None) -> str:
         week_notes=data["week_notes"],
         today_agenda=data.get("today_agenda") or [],
         long_term=data.get("long_term") or [],
+        notes=_collect_warnings(data),
     )
     spoken = polish_brief(text)
     if spoken and accept_polished_brief(text, spoken):
@@ -1005,6 +1223,7 @@ def push_brief(*, force: bool = False, now: datetime | None = None) -> str:
         week_notes=data["week_notes"],
         today_agenda=data.get("today_agenda") or [],
         long_term=data.get("long_term") or [],
+        notes=_collect_warnings(data),
     )
     from .followup import followup_items_for_command, followups_for_command
 

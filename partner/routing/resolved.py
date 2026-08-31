@@ -14,6 +14,12 @@ CN_TZ = timezone(timedelta(hours=8))
 _DEFAULT_RESOLVED = Path.home() / ".feishu-partner" / "resolved.jsonl"
 _DEFAULT_PENDING = Path.home() / ".feishu-partner" / "pending.json"
 
+# Bump this whenever the resolution semantics change (e.g., third_party_ack).
+# Old entries written under an earlier epoch will expire and let threads be
+# re-judged by the current logic.
+LOGIC_EPOCH = 1
+RESOLVE_TTL_DAYS = 14
+
 _DONE = (
     "已经解决了",
     "已经处理",
@@ -128,6 +134,35 @@ def looks_like_resolve(raw: str) -> bool:
     if looks_like_done_with_evidence(text):
         return True
     return any(word in text for word in _DONE)
+
+
+_UNRESOLVE_MARKS = (
+    "没解决",
+    "没完成",
+    "没搞定",
+    "没处理好",
+    "还没有解决",
+    "还没有完成",
+    "还没好",
+    "还没处理",
+    "搞错了",
+    "错了",
+    "撤",
+    "撤销",
+    "重新打开",
+    "恢复",
+)
+
+
+def looks_like_unresolve(raw: str) -> bool:
+    """User says a resolved item is actually not done — reopen it."""
+    text = (raw or "").strip()
+    if not text:
+        return False
+    # A bare question like "这个没解决吗？" is asking, not reopening.
+    if any(mark in text for mark in ("吗", "？", "?")):
+        return False
+    return any(mark in text for mark in _UNRESOLVE_MARKS)
 
 
 def quoted_brief_pending(
@@ -246,10 +281,47 @@ def is_resolved(key: str) -> bool:
     token = (key or "").strip()
     if not token:
         return False
+    now = datetime.now(CN_TZ)
+    ttl = timedelta(days=RESOLVE_TTL_DAYS)
     for row in load_resolved():
-        if str(row.get("key") or "") == token:
-            return True
+        if str(row.get("key") or "") != token:
+            continue
+        # Lease check: stale semantics (old epoch) or age beyond TTL stop
+        # suppressing the thread, allowing re-judgement by current logic.
+        when = _parse_resolved_ts(row.get("decided_at") or row.get("ts"))
+        epoch = int(row.get("logic_epoch", 0))
+        if when is None:
+            continue
+        if epoch < LOGIC_EPOCH:
+            continue
+        if now - when > ttl:
+            continue
+        return True
     return False
+
+
+def gc_resolved(*, dry_run: bool = False) -> tuple[int, int]:
+    """Remove expired resolved rows (old epoch or beyond TTL). Returns (kept, dropped)."""
+    rows = load_resolved()
+    now = datetime.now(CN_TZ)
+    ttl = timedelta(days=RESOLVE_TTL_DAYS)
+    kept_rows: list[dict[str, Any]] = []
+    dropped = 0
+    for row in rows:
+        when = _parse_resolved_ts(row.get("decided_at") or row.get("ts"))
+        epoch = int(row.get("logic_epoch", 0))
+        if when is None or epoch < LOGIC_EPOCH or now - when > ttl:
+            dropped += 1
+            continue
+        kept_rows.append(row)
+    if not dry_run and dropped:
+        dest = resolved_path()
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        text = "".join(
+            json.dumps(row, ensure_ascii=False) + "\n" for row in kept_rows
+        )
+        dest.write_text(text, encoding="utf-8")
+    return len(kept_rows), dropped
 
 
 def mark_resolved(
@@ -270,6 +342,7 @@ def mark_resolved(
     dest = resolved_path()
     try:
         dest.parent.mkdir(parents=True, exist_ok=True)
+        now = datetime.now(CN_TZ)
         row = {
             "key": token,
             "source": source,
@@ -277,7 +350,9 @@ def mark_resolved(
             "snippet": snippet[:160],
             "tag": tag,
             "link": link,
-            "ts": datetime.now(CN_TZ).isoformat(timespec="seconds"),
+            "ts": now.isoformat(timespec="seconds"),
+            "decided_at": now.isoformat(timespec="seconds"),
+            "logic_epoch": LOGIC_EPOCH,
         }
         with dest.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(row, ensure_ascii=False) + "\n")
@@ -298,6 +373,56 @@ def drop_pending(key: str) -> None:
     kept = [item for item in items if str(item.get("key") or "") != token]
     if len(kept) != len(items):
         save_pending(kept)
+
+
+def unresolve(keys: set[str] | list[str]) -> int:
+    """Physically delete rows for ``keys`` from the resolved ledger."""
+    tokens = {str(k or "").strip() for k in keys if str(k or "").strip()}
+    if not tokens:
+        return 0
+    rows = load_resolved()
+    kept = [row for row in rows if str(row.get("key") or "") not in tokens]
+    removed = len(rows) - len(kept)
+    if removed:
+        dest = resolved_path()
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        text = "".join(
+            json.dumps(row, ensure_ascii=False) + "\n" for row in kept
+        )
+        dest.write_text(text, encoding="utf-8")
+    return removed
+
+
+def unresolve_by_hint(hint: str) -> tuple[int, list[dict[str, Any]]]:
+    """Re-open resolved items that match ``hint``.
+
+    Only rows that are still alive under current logic-epoch/TTL are
+    considered, so stale ghosts are not accidentally resurrected.
+    """
+    needle = (hint or "").strip()
+    rows = [
+        row for row in load_resolved()
+        if is_resolved(str(row.get("key") or ""))
+    ]
+    if not rows:
+        return 0, []
+    matches: list[dict[str, Any]] = []
+    for row in rows:
+        chat = str(row.get("chat_name") or "").strip()
+        snippet = str(row.get("snippet") or "").strip()
+        key = str(row.get("key") or "").strip()
+        if not key:
+            continue
+        labels = [chat, snippet, key]
+        if any(needle in label or (label and label in needle) for label in labels if label):
+            matches.append(row)
+    if len(matches) > 1:
+        # Be conservative: ambiguous reopen requests are not auto-batch.
+        return -1, matches
+    removed = 0
+    if matches:
+        removed = unresolve([row["key"] for row in matches])
+    return removed, matches
 
 
 def save_pending(items: list[dict[str, Any]]) -> None:
@@ -727,6 +852,25 @@ def resolve_text(raw: str) -> str:
     items = load_pending()
     hint = resolve_hint(raw)
     followups = open_followups_as_pending()
+
+    # Re-opening path: user realises an item was wrongly marked resolved.
+    if looks_like_unresolve(raw):
+        removed, matches = unresolve_by_hint(hint)
+        if removed == 1:
+            name = str(matches[0].get("chat_name") or "那条")
+            return f"已撤销「已处理」，{name} 那条会重新出现在简报里。"
+        if removed > 1:
+            lines = ["撤销了好几条："]
+            for row in matches[:5]:
+                lines.append(f"- {row.get('chat_name') or '那条'}：{row.get('snippet') or ''}")
+            return "\n".join(lines)
+        if removed == -1:
+            lines = ["对上好几条，说清楚撤销哪一条（群名/原话片段）："]
+            for row in matches[:5]:
+                lines.append(f"- {row.get('chat_name') or '那条'}：{row.get('snippet') or ''}")
+            return "\n".join(lines)
+        return "没在已处理里找到能撤销的项。它可能已过期或已被清理。"
+
     quoted = quoted_brief_pending(raw, items)
     if quoted:
         closed = 0

@@ -1,7 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PYTHON="${FEISHU_PARTNER_PYTHON:-/Users/wumm/.workbuddy/binaries/python/envs/feishu_partner/bin/python3}"
+
+# LaunchAgent runs with a minimal shell environment: pick the managed
+# WorkBuddy venv when no explicit python is requested and it exists.
+if [ -n "${FEISHU_PARTNER_PYTHON:-}" ]; then
+    PYTHON="$FEISHU_PARTNER_PYTHON"
+elif [ -x "/Users/wumm/.workbuddy/binaries/python/envs/feishu_partner/bin/python3" ]; then
+    PYTHON="/Users/wumm/.workbuddy/binaries/python/envs/feishu_partner/bin/python3"
+else
+    PYTHON="python3"
+fi
+
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONUNBUFFERED=1
 exec "$PYTHON" -u -m partner "$@"

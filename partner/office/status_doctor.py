@@ -5,6 +5,7 @@ from ..core.ids import display_name, identity_hint, identity_ready, config_path
 from ..core.lark import run_lark
 from ..compose.hermes_setup import ensure_profile, profile_status_line
 from ..compose.llm import hermes_available
+from .messaging import _probe_ok
 from .schedule import schedule_status_lines
 
 CN_TZ = timezone(timedelta(hours=8))

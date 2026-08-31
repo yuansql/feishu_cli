@@ -361,6 +361,12 @@ def brief_card(
     # 顶部统计
     elements.append(_overview_columns(len(progressed), len(unreplied), len(entries)))
 
+    # 采集饱和度/失败警告
+    if data.get("fetch_failed"):
+        elements.append(_note_box("⚠️ 部分 @ 消息采集失败，今天的待处理列表可能不完整，请手动复核", color="red"))
+    elif data.get("truncated"):
+        elements.append(_note_box("⚠️ 昨日 @ 消息较多，只采集到部分内容，请手动复核群聊", color="orange"))
+
     # 昨日小结
     if progressed or unreplied or long_term:
         elements.append(_hr())

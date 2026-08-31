@@ -6,6 +6,8 @@ from datetime import datetime, timezone, timedelta
 import unittest
 
 from partner.office.brief import (
+    _fetch_group_mentions,
+    _thread_participants,
     agenda_entries,
     approval_priority_lines,
     clip_line,
@@ -20,9 +22,11 @@ from partner.office.brief import (
     pick_priorities,
     rank_priorities,
     reply_status,
+    third_party_ack,
     user_spoke_after,
     work_priorities,
 )
+from partner.core.ids import USER_OPEN_ID
 from partner.office.brief_card import brief_card, day_work_card
 from partner.office.schedule import BRIEF_LABEL, SERVE_LABEL, plist_body, serve_plist_body
 
@@ -613,6 +617,216 @@ class PushOnceTests(unittest.TestCase):
                                         for thread in threads:
                                             thread.join(timeout=3)
         self.assertEqual(sends, ["card"])
+
+
+class ThirdPartyAckTests(unittest.TestCase):
+    """A third party's ack (e.g. 吴梦晨 "ok") settles an @ thread the user followed up on."""
+
+    def _msg(self, who: str, text: str, minute: int, mid: str = "") -> dict:
+        return {
+            "message_id": mid or f"om_{minute}",
+            "sender": {"id": who, "name": "x"},
+            "create_time": f"2026-08-28T10:{minute:02d}:00",
+            "content": {"text": text},
+        }
+
+    def test_third_party_ok_settles_thread(self) -> None:
+        after = datetime(2026, 8, 28, 10, 0, tzinfo=CN)
+        msgs = [
+            self._msg(USER_OPEN_ID, "我喊上少华和梦晨一起", 5),
+            self._msg("ou_wumengchen", "ok", 7),
+        ]
+        self.assertTrue(third_party_ack(msgs, after=after))
+
+    def test_bot_ok_is_ignored(self) -> None:
+        after = datetime(2026, 8, 28, 10, 0, tzinfo=CN)
+        msgs = [
+            {
+                "message_id": "om_bot",
+                "sender": {"id": "bot_1", "type": "bot", "name": "小助手"},
+                "create_time": "2026-08-28T10:07:00",
+                "content": {"text": "ok"},
+            }
+        ]
+        self.assertFalse(third_party_ack(msgs, after=after))
+
+    def test_non_participant_ok_does_not_settle(self) -> None:
+        """A random passer-by's ack must not close a thread they weren't in."""
+        after = datetime(2026, 8, 28, 10, 0, tzinfo=CN)
+        msgs = [
+            self._msg("ou_stranger", "ok", 7),
+        ]
+        participants = {USER_OPEN_ID, "ou_wumengchen"}
+        self.assertFalse(
+            third_party_ack(msgs, after=after, participants=participants)
+        )
+
+    def test_participant_by_mention_ok_settles(self) -> None:
+        after = datetime(2026, 8, 28, 10, 0, tzinfo=CN)
+        msgs = [
+            self._msg("ou_wumengchen", "ok", 7),
+        ]
+        participants = {USER_OPEN_ID, "ou_wumengchen"}
+        self.assertTrue(
+            third_party_ack(msgs, after=after, participants=participants)
+        )
+
+    def test_third_party_ok_with_punctuation(self) -> None:
+        after = datetime(2026, 8, 28, 10, 0, tzinfo=CN)
+        self.assertTrue(third_party_ack([self._msg("ou_a", "好的。", 3)], after=after))
+        self.assertTrue(third_party_ack([self._msg("ou_a", "👍", 3)], after=after))
+        self.assertTrue(third_party_ack([self._msg("ou_a", "收到～", 3)], after=after))
+
+    def test_affirmative_phrase_counts(self) -> None:
+        after = datetime(2026, 8, 28, 10, 0, tzinfo=CN)
+        for text in ("没问题", "可以", "我知道了", "同意", "准时参加"):
+            self.assertTrue(
+                third_party_ack([self._msg("ou_a", text, 3)], after=after), msg=text
+            )
+
+    def test_own_message_does_not_count(self) -> None:
+        """Only the user spoke → not a third-party ack."""
+        after = datetime(2026, 8, 28, 10, 0, tzinfo=CN)
+        msgs = [self._msg(USER_OPEN_ID, "我喊上少华和梦晨一起", 5)]
+        self.assertFalse(third_party_ack(msgs, after=after))
+
+    def test_message_before_window_ignored(self) -> None:
+        after = datetime(2026, 8, 28, 10, 30, tzinfo=CN)
+        self.assertFalse(third_party_ack([self._msg("ou_a", "ok", 5)], after=after))
+
+    def test_third_party_question_is_not_ack(self) -> None:
+        """A follow-up question is not a resolution."""
+        after = datetime(2026, 8, 28, 10, 0, tzinfo=CN)
+        for text in ("什么时候？", "几点开始吗", "哪个会议室"):
+            self.assertFalse(
+                third_party_ack([self._msg("ou_a", text, 3)], after=after), msg=text
+            )
+
+    def test_exclude_id_skips_origin_message(self) -> None:
+        after = datetime(2026, 8, 28, 10, 0, tzinfo=CN)
+        msgs = [self._msg("ou_a", "ok", 1, mid="om_origin")]
+        self.assertFalse(third_party_ack(msgs, after=after, exclude_id="om_origin"))
+
+
+class ThreadParticipantTests(unittest.TestCase):
+    """_thread_participants licenses only people @'d or already in the thread."""
+
+    def _msg(self, who: str, text: str, minute: int) -> dict:
+        return {
+            "message_id": f"om_{minute}",
+            "sender": {"id": who, "name": "x"},
+            "create_time": f"2026-08-28T10:{minute:02d}:00",
+            "content": {"text": text},
+        }
+
+    def test_participants_include_mentioned_open_id(self) -> None:
+        after = datetime(2026, 8, 28, 10, 0, tzinfo=CN)
+        item = {
+            "message_id": "om_origin",
+            "mentions": [
+                {"id": {"open_id": "ou_wumengchen"}, "name": "吴梦晨"},
+                {"id": {"open_id": "ou_shaohua"}, "name": "周少华"},
+            ],
+        }
+        part = _thread_participants(
+            item=item,
+            messages=[],
+            after=after,
+            exclude_id="om_origin",
+            user_id=USER_OPEN_ID,
+        )
+        self.assertIn("ou_wumengchen", part)
+        self.assertIn("ou_shaohua", part)
+        self.assertIn("name:吴梦晨", part)
+
+    def test_participants_include_thread_speakers(self) -> None:
+        after = datetime(2026, 8, 28, 10, 0, tzinfo=CN)
+        item = {"message_id": "om_origin"}
+        msgs = [
+            self._msg("ou_qiu", "那5点约个会", 1),
+            self._msg("ou_wumengchen", "ok", 2),
+        ]
+        part = _thread_participants(
+            item=item,
+            messages=msgs,
+            after=after,
+            exclude_id="om_origin",
+            user_id=USER_OPEN_ID,
+        )
+        self.assertIn("ou_qiu", part)
+        self.assertIn("ou_wumengchen", part)
+        self.assertNotIn(USER_OPEN_ID, part)
+
+
+class FetchMentionTests(unittest.TestCase):
+    """_fetch_group_mentions detects truncation and fetch failures."""
+
+    def _make_hit(self, i: int) -> dict:
+        return {
+            "message_id": f"om_{i}",
+            "sender": {"id": f"ou_{i}"},
+            "content": {"text": f"hit {i}"},
+        }
+
+    def test_hits_below_cap_are_not_truncated(self) -> None:
+        from unittest.mock import patch
+
+        payload = {
+            "ok": True,
+            "data": {"items": [self._make_hit(i) for i in range(5)]},
+        }
+        with patch("partner.office.brief.run_lark", return_value=payload):
+            hits, truncated, failed = _fetch_group_mentions(
+                datetime(2026, 8, 28, 0, 0, tzinfo=CN),
+                datetime(2026, 8, 28, 23, 59, tzinfo=CN),
+            )
+        self.assertEqual(len(hits), 5)
+        self.assertFalse(truncated)
+        self.assertFalse(failed)
+
+    def test_hits_equal_cap_are_truncated(self) -> None:
+        from unittest.mock import patch
+
+        payload = {
+            "ok": True,
+            "data": {"items": [self._make_hit(i) for i in range(20)]},
+        }
+        with patch("partner.office.brief.run_lark", return_value=payload):
+            hits, truncated, failed = _fetch_group_mentions(
+                datetime(2026, 8, 28, 0, 0, tzinfo=CN),
+                datetime(2026, 8, 28, 23, 59, tzinfo=CN),
+            )
+        self.assertEqual(len(hits), 20)
+        self.assertTrue(truncated)
+        self.assertFalse(failed)
+
+    def test_failure_returns_empty_and_fetch_failed(self) -> None:
+        from unittest.mock import patch
+
+        with patch(
+            "partner.office.brief.run_lark", return_value={"ok": False}
+        ):
+            hits, truncated, failed = _fetch_group_mentions(
+                datetime(2026, 8, 28, 0, 0, tzinfo=CN),
+                datetime(2026, 8, 28, 23, 59, tzinfo=CN),
+            )
+        self.assertEqual(hits, [])
+        self.assertFalse(truncated)
+        self.assertTrue(failed)
+
+
+class FormatWarningTests(unittest.TestCase):
+    def test_warnings_rendered_in_text_brief(self) -> None:
+        text = format_daily_brief(
+            today=datetime(2026, 8, 18, tzinfo=CN).date(),
+            workday=datetime(2026, 8, 17).date(),
+            progressed=["早会（已结束）"],
+            unreplied=[],
+            priorities=[],
+            week_notes=[],
+            notes=["⚠️ 部分 @ 消息采集失败，今天的待处理列表可能不完整"],
+        )
+        self.assertIn("部分 @ 消息采集失败", text)
 
 
 if __name__ == "__main__":
