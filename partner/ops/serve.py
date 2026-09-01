@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from ..core.ack import ACK_EMOJI, ack_line, should_ack_text
-from ..actions import add_reaction, dispatch, send_card, send_style_card, send_text
+from ..actions import add_reaction, dispatch, send_card, send_style_card, send_text, send_message
 from ..office.messaging import load_card_cache
 from ..office.brief import already_pushed, push_brief
 from ..core.events import (
@@ -248,16 +248,12 @@ def send_checked(
     as_identity: str = "bot",
     attempts: int = 2,
 ) -> str:
-    result = "skip"
-    for attempt in range(attempts):
-        result = send_text(chat_id, text, as_identity=as_identity)
-        if send_ok(result):
-            if attempt:
-                _log(f"send-retry ok attempt={attempt + 1}")
-            return result
-        if not looks_like_transient_fail(result):
-            return result
-        _log(f"send-retry attempt={attempt + 1} {result[:160]}")
+    result = send_message(chat_id, text, as_identity=as_identity, attempts=attempts)
+    if send_ok(result):
+        if result != "已发送。":
+            _log(f"send-retry ok")
+        return result
+    _log(f"send-checked: {result[:160]}")
     return result
 
 

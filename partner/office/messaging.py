@@ -6,12 +6,17 @@ from datetime import timedelta, timezone
 from pathlib import Path
 from typing import Any
 from ..compose.formatters import _chat_tokens, _items, format_chats, format_lark_error
+from ..compose.llm import _looks_like_transport_error
 from ..core.inbox import recent_items
 from ..routing.intents import Intent
 from ..core.lark import run_lark
 from .watch import format_inbox_digest
 from ..core.session import save_turn
 from .calendar_views import _agenda_range, _day_bounds
+
+
+_CARD_CACHE_DIR = Path.home() / ".feishu-partner" / "card-cache"
+_BRIEF_ID_FILE = Path.home() / ".feishu-partner" / "brief-message-id"
 
 CN_TZ = timezone(timedelta(hours=8))
 
@@ -381,22 +386,97 @@ def send_text(chat_id: str, text: str, *, as_identity: str='bot') -> str:
         return '已发送。'
     return format_lark_error(payload)
 
-def send_card(chat_id: str, card: dict[str, Any], *, as_identity: str='bot') -> str:
+
+def send_markdown(chat_id: str, text: str, *, as_identity: str='bot') -> str:
+    """Send markdown; Feishu will render links, bold, etc. as rich text."""
+    if not text:
+        return '用法：发 oc_xxx 文本'
+    payload = run_lark(['im', '+messages-send', *_send_args(chat_id), '--markdown', text], as_identity=as_identity)
+    if payload.get('ok'):
+        return '已发送。'
+    return format_lark_error(payload)
+
+
+def looks_like_rich_text(text: str) -> bool:
+    """True when text contains markdown links or simple HTML card wrappers.
+
+    Send these via --markdown so the client renders clickable links instead of
+    printing raw tags and brackets.
+    """
+    blob = text or ""
+    if re.search(r"!?\[([^\]]+)\]\(([^)]+)\)", blob):
+        return True
+    if re.search(r"<card\b[^>]*title=", blob, re.IGNORECASE):
+        return True
+    if re.search(r"<a\b[^>]+href=", blob, re.IGNORECASE):
+        return True
+    return False
+
+
+def send_message(
+    chat_id: str,
+    text: str,
+    *,
+    as_identity: str = "bot",
+    attempts: int = 2,
+) -> str:
+    """Send text or markdown; routes to markdown when links/card tags present."""
+    if not text:
+        return "用法：发 oc_xxx 文本"
+    sender = send_markdown if looks_like_rich_text(text) else send_text
+    result = "skip"
+    for attempt in range(attempts):
+        result = sender(chat_id, text, as_identity=as_identity)
+        if (result or "").strip() == "已发送。":
+            return result
+        blob = (result or "").lower()
+        # Don't retry missing-scope / permission errors.
+        if "missing_scope" in blob or "缺权限" in blob:
+            return result
+        if not (
+            _looks_like_transport_error(result or "")
+            or any(
+                token in blob
+                for token in (
+                    "timeout",
+                    "timed out",
+                    "econnreset",
+                    "connection reset",
+                    "429",
+                    "502",
+                    "503",
+                    "504",
+                )
+            )
+        ):
+            return result
+    return result
+
+
+def send_card(
+    chat_id: str,
+    card: dict[str, Any],
+    *,
+    as_identity: str='bot',
+    return_message_id: bool = False,
+) -> str:
     if not chat_id or not card:
         return '卡片缺少会话或内容'
     payload = run_lark(['im', '+messages-send', *_send_args(chat_id), '--msg-type', 'interactive', '--content', json.dumps(card, ensure_ascii=False)], as_identity=as_identity)
     if payload.get('ok'):
         mid = str((payload.get('data') or {}).get('message_id') or '')
         if mid:
-            _cache_card(mid, card)
+            cache_card(mid, card)
+        if return_message_id:
+            return mid
         return '已发送。'
+    if return_message_id:
+        return ''
     return format_lark_error(payload)
 
 
-_CARD_CACHE_DIR = Path.home() / '.feishu-partner' / 'card-cache'
-
-
-def _cache_card(message_id: str, card: dict[str, Any]) -> None:
+def cache_card(message_id: str, card: dict[str, Any]) -> None:
+    """Persist card JSON so we can patch it later (e.g. disable a button)."""
     try:
         _CARD_CACHE_DIR.mkdir(parents=True, exist_ok=True)
         (_CARD_CACHE_DIR / f'{message_id}.json').write_text(
@@ -407,13 +487,133 @@ def _cache_card(message_id: str, card: dict[str, Any]) -> None:
 
 
 def load_card_cache(message_id: str) -> dict[str, Any] | None:
-    path = _CARD_CACHE_DIR / f'{message_id}.json'
-    if not path.exists():
-        return None
     try:
-        return json.loads(path.read_text(encoding='utf-8'))
+        path = _CARD_CACHE_DIR / f"{message_id}.json"
+        if not path.exists():
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
+
+
+def save_brief_message_id(message_id: str) -> None:
+    try:
+        _BRIEF_ID_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _BRIEF_ID_FILE.write_text(message_id, encoding="utf-8")
+    except OSError:
+        pass
+
+
+def load_brief_message_id() -> str:
+    try:
+        return _BRIEF_ID_FILE.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def disable_card_button(
+    message_id: str,
+    key: str,
+    label: str,
+    card: dict[str, Any] | None = None,
+) -> tuple[bool, str]:
+    """Single-button convenience wrapper for :func:`disable_card_buttons`."""
+    return disable_card_buttons(message_id, [(key, label)], card=card)
+
+
+def disable_card_buttons(
+    message_id: str,
+    targets: list[tuple[str, str]],
+    *,
+    card: dict[str, Any] | None = None,
+) -> tuple[bool, str]:
+    """Patch the original card so multiple buttons become disabled/renamed in one call.
+
+    ``targets`` is a list of ``(key, label)`` pairs. The card is loaded once,
+    updated once, and patched once. This avoids N round-trips when a user marks
+    several items done with one message.
+
+    Returns (success, log_message). Prefer the caller-supplied card JSON; fall
+    back to the on-disk cache or fetching the message from Feishu.
+    """
+    if not message_id:
+        return False, "disable-card: no message_id"
+    if not targets:
+        return True, "disable-card: no targets"
+    target_map = {key: label for key, label in targets if key}
+    if not target_map:
+        return True, "disable-card: no valid keys"
+
+    _card = card
+    if not _card:
+        _card = load_card_cache(message_id)
+    if not _card:
+        payload = run_lark(
+            ["im", "+messages-mget", "--message-ids", message_id, "--no-reactions"],
+            as_identity="bot",
+        )
+        if payload.get("ok") is False:
+            return False, f"disable-card: mget fail {message_id}"
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        msgs = data.get("messages") if isinstance(data.get("messages"), list) else []
+        if not msgs or not isinstance(msgs[0], dict):
+            return False, f"disable-card: no message {message_id}"
+        content = msgs[0].get("content")
+        if isinstance(content, str):
+            try:
+                _card = json.loads(content)
+            except json.JSONDecodeError:
+                return False, f"disable-card: content not json {message_id}"
+        elif isinstance(content, dict):
+            _card = content
+        else:
+            return False, f"disable-card: no content {message_id}"
+        if not isinstance(_card, dict):
+            return False, f"disable-card: content not dict {message_id}"
+
+    seen: set[str] = set()
+
+    def _walk(node: Any) -> None:
+        if isinstance(node, dict):
+            value = node.get("value")
+            if isinstance(value, dict):
+                k = str(value.get("key") or "")
+                if k in target_map and k not in seen:
+                    node["text"] = {"tag": "plain_text", "content": target_map[k]}
+                    node["type"] = "default"
+                    node["disabled"] = True
+                    seen.add(k)
+                    return
+            for v in node.values():
+                _walk(v)
+        elif isinstance(node, list):
+            for item in node:
+                _walk(item)
+
+    _walk(_card)
+    if not seen:
+        return False, f"disable-card: no keys found {list(target_map)} in {message_id}"
+
+    body = json.dumps(
+        {"msg_type": "interactive", "content": json.dumps(_card, ensure_ascii=False)},
+        ensure_ascii=False,
+    )
+    update = run_lark(
+        [
+            "api",
+            "PATCH",
+            f"/open-apis/im/v1/messages/{message_id}",
+            "--data",
+            body,
+        ],
+        as_identity="bot",
+    )
+    if update.get("ok") is False:
+        return False, f"disable-card: patch fail {message_id} {update.get('error')}"
+    # Re-cache the patched card so later disables still work.
+    cache_card(message_id, _card)
+    return True, f"disable-card: patched {message_id} keys={sorted(seen)}"
+
 
 def _task_lines(payload: dict[str, Any]) -> list[str]:
     if payload.get('ok') is False:

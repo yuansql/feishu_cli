@@ -846,6 +846,16 @@ def ensure_pending_snapshot() -> None:
     snapshot_pending()
 
 
+def _disable_brief_buttons(buttons: list[tuple[str, str]]) -> None:
+    """Best-effort: dim the corresponding buttons on today's brief card."""
+    from ..office.messaging import disable_card_buttons, load_brief_message_id
+
+    mid = load_brief_message_id()
+    if not mid or not buttons:
+        return
+    disable_card_buttons(mid, buttons)
+
+
 def resolve_text(raw: str) -> str:
     from ..office.followup import apply_action, format_assign_push, open_followups_as_pending
 
@@ -874,6 +884,7 @@ def resolve_text(raw: str) -> str:
     quoted = quoted_brief_pending(raw, items)
     if quoted:
         closed = 0
+        to_disable: list[tuple[str, str]] = []
         for item in quoted:
             key = str(item.get("key") or "")
             if mark_resolved(
@@ -885,6 +896,8 @@ def resolve_text(raw: str) -> str:
                 link=str(item.get("link") or ""),
             ):
                 closed += 1
+                to_disable.append((key, "已处理"))
+        _disable_brief_buttons(to_disable)
         if not closed:
             return "没记下，请再说一遍「已处理」。"
         return f"已记下，待处理 / 待回复共 {closed} 条，明早简报不再催。"
@@ -904,9 +917,11 @@ def resolve_text(raw: str) -> str:
         ]
         if len(hits) == 1:
             item = hits[0]
-            result = apply_action("fu_done", str(item.get("key") or ""))
+            key = str(item.get("key") or "")
+            result = apply_action("fu_done", key)
             if not result.startswith("已记下"):
                 return result
+            _disable_brief_buttons([(key, "已完成")])
             who = str(item.get("chat_name") or "对方").strip()
             task = str(item.get("text") or "").replace("\n", " ").strip()
             if len(task) > 72:
@@ -943,7 +958,10 @@ def resolve_text(raw: str) -> str:
     key = str(item.get("key") or "")
     name = str(item.get("chat_name") or "那条")
     if key.startswith("fu:"):
-        return apply_action("fu_done", key)
+        result = apply_action("fu_done", key)
+        if result.startswith("已记下"):
+            _disable_brief_buttons([(key, "已完成")])
+        return result
     if not mark_resolved(
         key,
         source="text",
@@ -953,6 +971,7 @@ def resolve_text(raw: str) -> str:
         link=str(item.get("link") or ""),
     ):
         return "没记下，请再说一遍「已处理」。"
+    _disable_brief_buttons([(key, "已处理")])
     return f"已记下，明早简报不再列 {name} 那条。"
 
 

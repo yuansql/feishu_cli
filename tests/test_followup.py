@@ -582,6 +582,17 @@ class WorkAssignTests(unittest.TestCase):
         )
         self.assertIn("派你的活", line)
 
+    def test_format_assign_push_converts_card_to_markdown(self) -> None:
+        text = format_assign_push(
+            {
+                "asker_name": "假勤助手",
+                "text": '<card title="打卡周报(08/24-08/30)">上周异常考勤共 1 次，请及时处理 异常考勤：缺卡 1 次 [查看详情](https://applink.feishu.cn/client/mini_program/open?a=1)</card>',
+            }
+        )
+        self.assertIn("**打卡周报(08/24-08/30)**", text)
+        self.assertIn("[查看详情](https://applink.feishu.cn/", text)
+        self.assertNotIn("<card", text)
+
 
 class OpenFollowupFormatTests(unittest.TestCase):
     def test_direct_work_stays_when_tasks_empty(self) -> None:

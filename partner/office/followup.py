@@ -670,11 +670,43 @@ def should_sync_user_chats(
     return now - last >= every
 
 
+_CARD_RE = re.compile(
+    r"<card\b[^>]*?title=[\"']([^\"']+)[\"'][^>]*?>(.*?)</card>",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _card_to_markdown(text: str) -> str:
+    """Convert simple <card title=\"...\">... [name](url) ...</card> to markdown.
+
+    Feishu's --markdown sender renders the link as clickable rich text.
+    """
+
+    def repl(match: re.Match[str]) -> str:
+        title = (match.group(1) or "").strip()
+        body = (match.group(2) or "").strip()
+        # Keep markdown links; collapse extra whitespace.
+        body = re.sub(r"\s+", " ", body.replace("\n", " "))
+        return f"**{title}**\n\n{body}" if title else body
+
+    return _CARD_RE.sub(repl, text)
+
+
 def format_assign_push(item: dict[str, Any]) -> str:
     who = str(item.get("asker_name") or "有人").strip() or "有人"
     text = str(item.get("text") or "").replace("\n", " ").strip() or "(无正文)"
+    # Convert <card title="..."> to markdown *before* truncating so the link
+    # survives and remains clickable.
+    text = _card_to_markdown(text)
     if len(text) > 120:
-        text = text[:120] + "…"
+        # Best-effort: try not to cut a markdown link in half.
+        cut = text[:120]
+        if "[" in cut and "]" in cut and "(" in text[120:160]:
+            # Find the last safe break before an open bracket.
+            safe = cut.rfind(" ")
+            if safe > 60:
+                cut = text[:safe]
+        text = cut + "…"
     return f"刚记下{who}派你的活：\n{text}"
 
 

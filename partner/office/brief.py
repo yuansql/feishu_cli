@@ -1206,6 +1206,7 @@ def claim_daily_stamp(path: Path, now: datetime, *, force: bool = False) -> bool
 def push_brief(*, force: bool = False, now: datetime | None = None) -> str:
     from ..actions import send_card, send_text
     from .brief_card import brief_card
+    from .messaging import save_brief_message_id
 
     now = now or datetime.now(CN_TZ)
     if now.tzinfo is None:
@@ -1227,16 +1228,19 @@ def push_brief(*, force: bool = False, now: datetime | None = None) -> str:
     )
     from .followup import followup_items_for_command, followups_for_command
 
-    card_res = send_card(
+    card = brief_card(data, followups=followups_for_command(), followup_items=followup_items_for_command())
+    card_mid = send_card(
         P2P_CHAT_ID,
-        brief_card(data, followups=followups_for_command(), followup_items=followup_items_for_command()),
+        card,
         as_identity="bot",
+        return_message_id=True,
     )
-    if card_res == "已发送。":
+    if card_mid:
+        save_brief_message_id(card_mid)
         return "已推送今日简报。\n\n" + text
     spoken = polish_brief(text)
     fallback = spoken if spoken and accept_polished_brief(text, spoken) else text
     result = send_text(P2P_CHAT_ID, fallback, as_identity="bot")
     if result != "已发送。":
-        return card_res + "\n" + result + "\n\n" + fallback
-    return "卡片没发出，已改发文字。\n" + card_res + "\n\n" + fallback
+        return "卡片发送失败:\n" + result + "\n\n" + fallback
+    return "卡片没发出，已改发文字。\n" + result + "\n\n" + fallback
