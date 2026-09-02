@@ -34,6 +34,7 @@ from ..core import chat_context
 from ..office.approval_card import approval_expired_card
 from ..office.followup import (
     apply_action,
+    assign_push_card,
     format_assign_push,
     ingest,
     in_chat_watch_window,
@@ -710,10 +711,15 @@ def _maybe_sync_user_chats() -> None:
     for item in created:
         if str(item.get("kind") or "") not in {"direct", "assign_b", "self_transfer"}:
             continue
-        result = send_checked(
-            P2P_CHAT_ID, format_assign_push(item), as_identity="bot"
-        )
-        _log("assign-push: " + result + " " + str(item.get("id") or ""))
+        card = assign_push_card(item)
+        if card:
+            result = send_card(P2P_CHAT_ID, card, as_identity="bot")
+            _log("assign-push-card: " + result + " " + str(item.get("id") or ""))
+        else:
+            result = send_checked(
+                P2P_CHAT_ID, format_assign_push(item), as_identity="bot"
+            )
+            _log("assign-push-text: " + result + " " + str(item.get("id") or ""))
 
 
 def _maybe_decay_chat_context() -> None:

@@ -943,6 +943,8 @@ def _collect(now: datetime) -> dict[str, Any]:
         ts = str(item.get("ts") or "")
         if ts[:10] != workday.isoformat():
             continue
+        if not _about_user(item):
+            continue
         raw = (item.get("text") or "").replace("\n", " ").strip()
         if _looks_like_self_resolved(raw):
             continue

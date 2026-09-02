@@ -710,6 +710,87 @@ def format_assign_push(item: dict[str, Any]) -> str:
     return f"刚记下{who}派你的活：\n{text}"
 
 
+def _parse_card_text(text: str) -> tuple[str, str, str]:
+    """Extract (title, body, link) from a degraded card blob or plain markdown."""
+    title = ""
+    body = text
+    link = ""
+    m = re.search(
+        r'<card\s+title="([^"]*)"[^>]*>(.*?)</card>',
+        text,
+        re.DOTALL | re.IGNORECASE,
+    )
+    if m:
+        title = m.group(1).strip()
+        inner = m.group(2).strip()
+        lm = re.search(r"\[查看详情\]\((https?://[^)]+)\)", inner)
+        if lm:
+            link = lm.group(1)
+            body = re.sub(r"\s*\[查看详情\]\([^)]+\)\s*", "", inner).strip()
+        else:
+            body = inner
+    else:
+        lm = re.search(r"\[([^\]]+)\]\((https?://[^)]+)\)", text)
+        if lm:
+            link = lm.group(2)
+            body = text.replace(lm.group(0), "").strip()
+    return title, body, link
+
+
+def assign_push_card(item: dict[str, Any]) -> dict[str, Any] | None:
+    """Build an interactive card for an assign-push notification.
+
+    Returns ``None`` when the item has no usable text to render.
+    """
+    text = str(item.get("text") or "").strip()
+    if not text:
+        return None
+    title, body, link = _parse_card_text(text)
+    elements: list[dict[str, Any]] = []
+
+    md_content = f"**{title}**\n{body}" if title else body
+    elements.append(
+        {
+            "tag": "div",
+            "text": {"tag": "lark_md", "content": md_content},
+        }
+    )
+
+    actions: list[dict[str, Any]] = []
+    if link:
+        actions.append(
+            {
+                "tag": "button",
+                "text": {"tag": "plain_text", "content": "查看详情"},
+                "type": "primary",
+                "url": link,
+            }
+        )
+
+    key = str(item.get("id") or "")
+    if key:
+        actions.append(
+            {
+                "tag": "button",
+                "text": {"tag": "plain_text", "content": "完成"},
+                "type": "primary",
+                "value": {"act": "fu_done", "key": key},
+            }
+        )
+
+    if actions:
+        elements.append({"tag": "action", "actions": actions})
+
+    return {
+        "config": {"wide_screen_mode": True},
+        "header": {
+            "title": {"tag": "plain_text", "content": "📝 有人派活"},
+            "template": "grey",
+        },
+        "elements": elements,
+    }
+
+
 def weekly_rows(
     templates: list[dict[str, Any]],
     followups: list[dict[str, Any]],
