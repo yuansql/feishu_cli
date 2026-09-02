@@ -9,6 +9,7 @@ secrets/
 partner.egg-info/
 .pytest_cache/
 .evidence/
+.workbuddy/
 .workbuddy-ai/
 session.json
 serve.log

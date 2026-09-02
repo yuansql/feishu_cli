@@ -57,8 +57,8 @@ class TriggerScheduleTests(unittest.TestCase):
         )
 
     def test_once(self) -> None:
-        dt = datetime(2026, 8, 28, 9, 0, tzinfo=CN_TZ)
-        s = parse_schedule("once@2026-08-28T09:00")
+        dt = datetime(2099, 8, 28, 9, 0, tzinfo=CN_TZ)
+        s = parse_schedule("once@2099-08-28T09:00")
         self.assertEqual(s["type"], "once")
         self.assertEqual(s["dt"], dt)
         self.assertEqual(triggers.next_run(s, dt - timedelta(hours=1)), dt)

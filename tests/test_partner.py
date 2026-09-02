@@ -85,7 +85,8 @@ class PartnerLoopTests(unittest.TestCase):
         facts = "【张三最近怎么说】\n- 张三：方案可以，明天提测"
         with patch("partner.actions.hermes_available", return_value=False):
             with patch("partner.actions.rewrite_partner", return_value=ssl_err):
-                text = partner_reply("张三的回复如何？", facts, Intent(action="person", query="张三"))
+                with patch("partner.actions.rewrite_human", return_value=""):
+                    text = partner_reply("张三的回复如何？", facts, Intent(action="person", query="张三"))
         self.assertIn("方案可以", text)
         self.assertNotIn("SSL", text)
         self.assertNotIn("_ssl.c", text)

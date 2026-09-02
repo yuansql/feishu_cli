@@ -10,6 +10,7 @@ import sys
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 from ..core.ack import ACK_EMOJI, ack_line, should_ack_text
 from ..actions import add_reaction, dispatch, send_card, send_style_card, send_text, send_message

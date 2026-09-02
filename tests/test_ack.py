@@ -31,7 +31,7 @@ class AckLineTests(unittest.TestCase):
             order.append(f"react:{message_id}")
             return "ok"
 
-        def fake_send(chat_id: str, text: str, *, as_identity: str = "bot") -> str:
+        def fake_send(chat_id: str, text: str, *, as_identity: str = "bot", **_kw: object) -> str:
             order.append(f"send:{text[:12]}")
             return "已发送。"
 
@@ -40,7 +40,7 @@ class AckLineTests(unittest.TestCase):
             return "未完成待办 1 条"
 
         with patch("partner.ops.serve.add_reaction", side_effect=fake_react):
-            with patch("partner.ops.serve.send_text", side_effect=fake_send):
+            with patch("partner.ops.serve.send_message", side_effect=fake_send):
                 with patch("partner.ops.serve.dispatch", side_effect=fake_dispatch):
                     from partner.core.events import InboundMessage
 
@@ -70,7 +70,7 @@ class AckLineTests(unittest.TestCase):
             return "should-not-send"
 
         with patch("partner.ops.serve.add_reaction", return_value="ok"):
-            with patch("partner.ops.serve.send_text", return_value="已发送。"):
+            with patch("partner.ops.serve.send_message", return_value="已发送。"):
                 with patch("partner.ops.serve.send_style_card", side_effect=fake_card):
                     with patch("partner.ops.serve.dispatch", side_effect=fake_dispatch):
                         from partner.core.events import InboundMessage
@@ -92,7 +92,7 @@ class AckLineTests(unittest.TestCase):
 
         n_reply = {"n": 0}
 
-        def fake_send(_chat: str, text: str, *, as_identity: str = "bot") -> str:
+        def fake_send_text(chat_id: str, text: str, *, as_identity: str = "bot") -> str:
             if text.startswith("未完成"):
                 n_reply["n"] += 1
                 if n_reply["n"] == 1:
@@ -101,7 +101,7 @@ class AckLineTests(unittest.TestCase):
             return "已发送。"
 
         with patch("partner.ops.serve.add_reaction", return_value="ok"):
-            with patch("partner.ops.serve.send_text", side_effect=fake_send) as send:
+            with patch("partner.office.messaging.send_text", side_effect=fake_send_text) as send:
                 with patch("partner.ops.serve.dispatch", return_value="未完成待办 1 条"):
                     reply_user(
                         InboundMessage(
@@ -128,7 +128,7 @@ class AckLineTests(unittest.TestCase):
         )
         sent: list[str] = []
 
-        def fake_send(_chat: str, text: str, *, as_identity: str = "bot") -> str:
+        def fake_send(_chat: str, text: str, *, as_identity: str = "bot", **_kw: object) -> str:
             sent.append(text)
             return "已发送。"
 
@@ -138,7 +138,7 @@ class AckLineTests(unittest.TestCase):
             return ssl_err
 
         with patch("partner.ops.serve.add_reaction", return_value="ok"):
-            with patch("partner.ops.serve.send_text", side_effect=fake_send):
+            with patch("partner.ops.serve.send_message", side_effect=fake_send):
                 with patch("partner.ops.serve.dispatch", side_effect=fake_dispatch):
                     reply_user(
                         InboundMessage(

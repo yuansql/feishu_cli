@@ -185,7 +185,7 @@ class LedgerTests(unittest.TestCase):
                     "chat_id": "oc_app",
                     "chat_name": "APP沟通群",
                     "text": "主分支同步一下",
-                    "ts": "2026-08-24T10:00:00+08:00",
+                    "ts": "2026-09-01T10:00:00+08:00",
                 },
                 ensure_ascii=False,
             )

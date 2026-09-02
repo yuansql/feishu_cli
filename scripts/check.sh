@@ -21,5 +21,13 @@ if [ -x "$VENV/bin/python3" ]; then
 else
     PYTHON="python3"
 fi
+# Lint gate
+if command -v ruff >/dev/null 2>&1; then
+    ruff check partner tests || { echo "ruff check failed" >&2; exit 1; }
+    ruff format --check partner tests || { echo "ruff format check failed" >&2; exit 1; }
+else
+    echo "warn: ruff not found, skipping lint"
+fi
+
 $PYTHON -m unittest discover -s tests -q
 exec "$PYTHON" -u -m partner smoke "$@"
