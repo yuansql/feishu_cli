@@ -93,12 +93,22 @@ def run_lark(
     skip_format = {"whoami", "doctor", "auth", "config", "update", "help", "event"}
     if meta not in skip_format and "--format" not in cmd and "--json" not in cmd:
         cmd.extend(["--format", "json"])
-    proc = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        check=False,
-        input=input_text,
-    )
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+            input=input_text,
+        )
+    except subprocess.TimeoutExpired:
+        # lark-cli 偶发超时（如 base +record-list 大表扫描）绝不能搞挂调用方
+        # （serve 主循环就是被未捕获的 TimeoutExpired 打死的）。
+        return {
+            "ok": False,
+            "error": {"message": f"lark-cli timeout after {timeout}s: {meta}"},
+        }
+    except OSError as exc:
+        return {"ok": False, "error": {"message": f"lark-cli spawn failed: {exc}"}}
     return parse_cli_output(proc.stdout or "", proc.stderr or "", proc.returncode)

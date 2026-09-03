@@ -108,6 +108,33 @@ class DisableCardButtonTests(unittest.TestCase):
             ok, msg = messaging.disable_card_button("om_remote", "om:test", "已完成")
         self.assertTrue(ok)
 
+    def test_sequential_clicks_accumulate_disabled(self) -> None:
+        """2026-09-03 回归：连点多个「完成」，每次 patch 都必须基于上一次的合并结果，
+        否则后写的全量卡片会把先点的按钮还原成可点。"""
+        card = {
+            "config": {"wide_screen_mode": True},
+            "elements": [
+                {
+                    "tag": "action",
+                    "actions": [
+                        {"tag": "button", "text": {"tag": "plain_text", "content": "完成"}, "type": "primary", "value": {"act": "done", "key": "om:a"}},
+                        {"tag": "button", "text": {"tag": "plain_text", "content": "完成"}, "type": "primary", "value": {"act": "done", "key": "om:b"}},
+                    ],
+                }
+            ],
+        }
+        messaging.cache_card("brief_om", card)
+        with mock.patch("partner.office.messaging.run_lark", return_value={"ok": True}):
+            ok1, _ = messaging.disable_card_button("brief_om", "om:a", "已处理")
+            ok2, _ = messaging.disable_card_button("brief_om", "om:b", "已处理")
+        self.assertTrue(ok1)
+        self.assertTrue(ok2)
+        updated = json.loads((messaging._CARD_CACHE_DIR / "brief_om.json").read_text())
+        actions = updated["elements"][0]["actions"]
+        # 两次独立点击后，两个按钮都必须保持 disabled——第一个不能被第二次覆盖还原
+        self.assertTrue(actions[0]["disabled"], "第一个按钮被第二次 patch 还原了")
+        self.assertTrue(actions[1]["disabled"])
+
 
 class DisableBriefButtonIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
