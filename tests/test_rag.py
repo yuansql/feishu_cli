@@ -92,6 +92,65 @@ class RagTests(unittest.TestCase):
         self.assertTrue(any("回滚" in hit.text for hit in hits))
         self.assertFalse(any("预发" in hit.text for hit in hits))
 
+    def test_bm25_idf_monotonic(self) -> None:
+        from partner.office.rag import bm25_idf
+
+        # 词越稀有 idf 越高；全 corpus 都出现则趋近 0
+        self.assertGreater(bm25_idf(1, 100), bm25_idf(50, 100))
+        self.assertGreaterEqual(bm25_idf(100, 100), 0.0)
+        self.assertEqual(bm25_idf(0, 0), 0.0)
+
+    def test_bm25_score_prefers_relevant(self) -> None:
+        from partner.office.rag import bm25_score
+
+        df = {"预发": 1, "验证": 2}
+        doc_hit = ["A6", "预发", "验证", "上线"]
+        doc_miss = ["周报", "会议", "总结"]
+        hit = bm25_score(["预发"], doc_hit, df, n_docs=10, avgdl=4.0)
+        miss = bm25_score(["预发"], doc_miss, df, n_docs=10, avgdl=4.0)
+        self.assertGreater(hit, 0.0)
+        self.assertEqual(miss, 0.0)
+
+    def test_bm25_length_normalization(self) -> None:
+        from partner.office.rag import bm25_score
+
+        df = {"目标": 1}
+        short = ["目标", "甲"]
+        long_doc = ["目标"] + ["填充"] * 200
+        s_short = bm25_score(["目标"], short, df, n_docs=10, avgdl=2.0)
+        s_long = bm25_score(["目标"], long_doc, df, n_docs=10, avgdl=2.0)
+        self.assertGreater(s_short, s_long)
+
+    def test_rrf_fusion_merges_rankings(self) -> None:
+        from partner.office.rag import rrf_fusion
+
+        fused = rrf_fusion(["a", "b", "c"], ["b", "d"])
+        # b 两路都上榜（1/62+1/61）最高；a 第一路第 1（1/61）次之
+        # d 第二路第 2（1/62）再次；c 第一路第 3（1/63）最低
+        self.assertGreater(fused["b"], fused["a"])
+        self.assertAlmostEqual(fused["a"], 1.0 / 61, places=6)
+        self.assertAlmostEqual(fused["d"], 1.0 / 62, places=6)
+        self.assertGreater(fused["d"], fused["c"])
+
+    def test_hybrid_retrieve_ranks_keyword_and_vector(self) -> None:
+        append_chunks(
+            doc_id="doc-bm25",
+            title="发布手册",
+            url="https://example.com/1",
+            markdown="预发环境验证清单：权限、回滚、监控。",
+        )
+        append_chunks(
+            doc_id="doc-vec",
+            title="上线流程",
+            url="https://example.com/2",
+            markdown="上线前必须做 staging 检查，确认无误后再推全量。",
+        )
+        hits = retrieve("预发验证", top_k=5)
+        self.assertGreaterEqual(len(hits), 1)
+        self.assertEqual(hits[0].doc_id, "doc-bm25")
+        # 融合分是 RRF 量纲
+        self.assertGreater(hits[0].score, 0.01)
+
 
 if __name__ == "__main__":
     unittest.main()

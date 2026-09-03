@@ -297,7 +297,63 @@ def _chunk_vector(row: dict[str, Any], text: str) -> list[float]:
     return hashed_vector(text)
 
 
-def retrieve(query: str, *, top_k: int = 5, min_score: float = 0.55) -> list[ChunkHit]:
+# --- BM25 + RRF 混合检索（#71 升级）---
+# 关键词通道从「命中数/√词数」升级为 BM25（带文档频率与长度归一），
+# 向量通道保留 hashed embedding 余弦，两路排名用 RRF 融合。
+BM25_K1 = 1.5
+BM25_B = 0.75
+RRF_K = 60
+
+
+def bm25_idf(df: int, n_docs: int) -> float:
+    """标准 BM25 idf：log(1 + (N - df + 0.5) / (df + 0.5))，保证非负。"""
+    if n_docs <= 0:
+        return 0.0
+    import math
+
+    return math.log(1.0 + (n_docs - df + 0.5) / (df + 0.5))
+
+
+def bm25_score(
+    query_tokens: list[str],
+    doc_tokens: list[str],
+    df_map: dict[str, int],
+    n_docs: int,
+    avgdl: float,
+) -> float:
+    """单文档 BM25 得分。"""
+    if not query_tokens or not doc_tokens:
+        return 0.0
+    tf_map: dict[str, int] = {}
+    for tok in doc_tokens:
+        tf_map[tok] = tf_map.get(tok, 0) + 1
+    dl = len(doc_tokens)
+    norm = BM25_K1 * (1 - BM25_B + BM25_B * dl / max(avgdl, 1e-6))
+    total = 0.0
+    for tok in set(query_tokens):
+        tf = tf_map.get(tok, 0)
+        if tf == 0:
+            continue
+        idf = bm25_idf(df_map.get(tok, 0), n_docs)
+        total += idf * (tf * (BM25_K1 + 1)) / (tf + norm)
+    return total
+
+
+def rrf_fusion(*rankings: list[str], k: int = RRF_K) -> dict[str, float]:
+    """倒数排名融合：score = Σ 1/(k + rank)。输入是多个按好→差排好的 id 列表。"""
+    fused: dict[str, float] = {}
+    for ranking in rankings:
+        for rank, doc_id in enumerate(ranking):
+            fused[doc_id] = fused.get(doc_id, 0.0) + 1.0 / (k + rank + 1)
+    return fused
+
+
+def retrieve(query: str, *, top_k: int = 5, min_score: float = 0.012) -> list[ChunkHit]:
+    """BM25（关键词）+ 向量余弦 双路召回，RRF 融合排序。
+
+    min_score 是融合分阈值（RRF 量纲：单路第 1 名约 0.0164）。
+    旧版线性组合（keyword + 1.2*cosine, 阈值 0.55）已由本实现替代。
+    """
     _, term_notes = expand_query(query)
     query_tokens = tokenize(query)
     for note in term_notes:
@@ -310,22 +366,50 @@ def retrieve(query: str, *, top_k: int = 5, min_score: float = 0.55) -> list[Chu
         seen.add(tok)
         deduped.append(tok)
     query_vec = hashed_vector((query or "") + " " + " ".join(term_notes))
+
+    rows = _read_index()
+    if not rows:
+        return []
+    docs_tokens: list[list[str]] = [tokenize(str(row.get("text") or "")) for row in rows]
+    n_docs = len(rows)
+    avgdl = sum(len(t) for t in docs_tokens) / max(n_docs, 1)
+    df_map: dict[str, int] = {}
+    for tokens in docs_tokens:
+        for tok in set(tokens):
+            df_map[tok] = df_map.get(tok, 0) + 1
+
+    bm25_scores = [
+        bm25_score(deduped, tokens, df_map, n_docs, avgdl) for tokens in docs_tokens
+    ]
+    cos_scores = [
+        max(_cosine(query_vec, _chunk_vector(row, str(row.get("text") or ""))), 0.0)
+        for row in rows
+    ]
+    # 两路各自排序，只放有效得分的 chunk（0 分不进榜单，避免噪声）
+    bm25_ranking = [
+        i for i in sorted(range(n_docs), key=lambda i: bm25_scores[i], reverse=True)
+        if bm25_scores[i] > 0
+    ]
+    vec_ranking = [
+        i for i in sorted(range(n_docs), key=lambda i: cos_scores[i], reverse=True)
+        if cos_scores[i] >= 0.2
+    ]
+    fused = rrf_fusion(
+        [str(i) for i in bm25_ranking], [str(i) for i in vec_ranking]
+    )
     hits: list[ChunkHit] = []
-    for row in _read_index():
-        text = str(row.get("text") or "")
-        keyword = _score(deduped, text)
-        cosine = max(_cosine(query_vec, _chunk_vector(row, text)), 0.0)
-        score = keyword + 1.2 * cosine
+    for idx_str, score in fused.items():
         if score < min_score:
             continue
+        row = rows[int(idx_str)]
         hits.append(
             ChunkHit(
                 chunk_id=str(row.get("chunk_id") or ""),
                 doc_id=str(row.get("doc_id") or ""),
                 title=str(row.get("title") or ""),
                 url=str(row.get("url") or ""),
-                text=text,
-                score=round(score, 3),
+                text=str(row.get("text") or ""),
+                score=round(score, 4),
             )
         )
     hits.sort(key=lambda item: item.score, reverse=True)

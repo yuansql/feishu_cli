@@ -1,4 +1,4 @@
-"""Local publish snapshots for Workflow / knowledge / terminology. Diff + rollback."""
+"""Local publish snapshots for Workflow / knowledge / terminology / 技能提示词. Diff + rollback."""
 
 from __future__ import annotations
 
@@ -11,11 +11,19 @@ from pathlib import Path
 from typing import Any
 
 from ..office.knowledge import config_path as knowledge_path
+from ..office.memory import agents_md_path, experience_path
 from ..office.rag import terminology_path
 from ..runtime.workflow import _bundled_defaults_path, user_workflows_path
 
 CN_TZ = timezone(timedelta(hours=8))
-TRACKED = ("workflows.json", "knowledge.json", "terminology.json", "bundled-workflows.json")
+TRACKED = (
+    "workflows.json",
+    "knowledge.json",
+    "terminology.json",
+    "bundled-workflows.json",
+    "Agents.md",
+    "experience.jsonl",
+)
 
 
 def versions_dir() -> Path:
@@ -50,6 +58,8 @@ def _live_sources() -> dict[str, Path]:
         "knowledge.json": knowledge_path(),
         "terminology.json": terminology_path(),
         "bundled-workflows.json": _bundled_defaults_path(),
+        "Agents.md": agents_md_path(),
+        "experience.jsonl": experience_path(),
     }
 
 
@@ -138,6 +148,8 @@ def rollback(vid: str) -> str:
         "workflows.json": user_workflows_path(),
         "knowledge.json": knowledge_path(),
         "terminology.json": terminology_path(),
+        "Agents.md": agents_md_path(),
+        "experience.jsonl": experience_path(),
     }
     for name, dest in mapping.items():
         src = snap / name

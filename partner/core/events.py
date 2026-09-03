@@ -34,6 +34,8 @@ class InboundMessage:
     sender_name: str = ""
     chat_name: str = ""
     woke: bool = False
+    msg_type: str = ""
+    content: dict[str, Any] = field(default_factory=dict)
 
 
 def _mention_open_id(mention: dict[str, Any]) -> str:
@@ -132,6 +134,17 @@ def extract_inbound_message(payload: Any) -> InboundMessage | None:
         text = str(content.get("text") or "")
     else:
         text = str(content or "")
+    msg_type = str(
+        data.get("message_type") or data.get("msg_type") or data.get("type") or ""
+    )
+    content_dict: dict[str, Any] = content if isinstance(content, dict) else {}
+    if not content_dict and isinstance(content, str) and content.strip().startswith("{"):
+        try:
+            parsed = json.loads(content)
+            if isinstance(parsed, dict):
+                content_dict = parsed
+        except json.JSONDecodeError:
+            pass
     mentions = data.get("mentions") or []
     mention_pairs: list[tuple[str, str]] = []
     mention_ids_list: list[str] = []
@@ -168,6 +181,8 @@ def extract_inbound_message(payload: Any) -> InboundMessage | None:
         sender_name=sender_name,
         chat_name=str(data.get("chat_name") or data.get("chatName") or ""),
         woke=woke,
+        msg_type=msg_type,
+        content=content_dict,
     )
 
 

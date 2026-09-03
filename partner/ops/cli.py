@@ -60,6 +60,11 @@ PARTNER_CMDS = {
     "memory",
     "agent",
     "triggers",
+    "sheet-analyze",
+    "ppt",
+    "drive-tasks",
+    "org",
+    "artifact",
 }
 
 
@@ -168,7 +173,8 @@ def main(argv: list[str] | None = None) -> int:
     p_triggers = sub.add_parser("triggers")
     p_triggers.add_argument("trig_args", nargs="*", default=[])
     sub.add_parser("sandbox")
-    sub.add_parser("eval")
+    p_eval = sub.add_parser("eval")
+    p_eval.add_argument("eval_args", nargs="*", default=[])
 
     p_smoke = sub.add_parser("smoke")
     p_smoke.add_argument(
@@ -182,6 +188,32 @@ def main(argv: list[str] | None = None) -> int:
 
     p_memory = sub.add_parser("memory")
     p_memory.add_argument("memory_args", nargs="*", default=[])
+
+    p_sheet = sub.add_parser("sheet-analyze")
+    p_sheet.add_argument("source")
+    p_sheet.add_argument("--question", "-q", default="")
+    p_sheet.add_argument("--write-back", action="store_true")
+    p_sheet.add_argument("--chat-id", default="")
+    p_sheet.add_argument("--no-chart", action="store_true")
+
+    p_ppt = sub.add_parser("ppt")
+    p_ppt.add_argument("topic", nargs="+")
+    p_ppt.add_argument("--outline", "-o", default="")
+    p_ppt.add_argument("--materials", "-m", default="")
+    p_ppt.add_argument("--upload", action="store_true")
+    p_ppt.add_argument("--name", default="")
+
+    p_drive = sub.add_parser("drive-tasks")
+    p_drive.add_argument("minutes", nargs="+")
+    p_drive.add_argument("--execute", action="store_true")
+    p_drive.add_argument("--no-notify", action="store_true")
+    p_drive.add_argument("--source", default="")
+
+    p_org = sub.add_parser("org")
+    p_org.add_argument("org_args", nargs="*", default=[])
+
+    p_artifact = sub.add_parser("artifact")
+    p_artifact.add_argument("artifact_args", nargs="*", default=[])
 
     p_agent = sub.add_parser("agent")
     p_agent.add_argument(
@@ -386,7 +418,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "eval":
         from .eval import eval_text
 
-        print(eval_text())
+        print(eval_text(list(getattr(args, "eval_args", []) or [])))
         return 0
     if args.cmd == "smoke":
         from .smoke import run_smoke, smoke_text
@@ -406,6 +438,79 @@ def main(argv: list[str] | None = None) -> int:
 
         print(memory_cli(getattr(args, "memory_args", []) or []))
         return 0
+    if args.cmd == "sheet-analyze":
+        from ..office.sheet_analysis import analyze as sheet_analyze
+
+        print(
+            sheet_analyze(
+                args.source,
+                question=args.question,
+                write_back_flag=args.write_back,
+                chat_id=args.chat_id,
+                with_chart=not args.no_chart,
+            )
+        )
+        return 0
+    if args.cmd == "ppt":
+        from ..office.ppt_gen import generate_ppt
+        from pathlib import Path
+
+        topic = " ".join(args.topic)
+        outline_text = args.outline
+        if topic.startswith("@"):
+            outline_path = Path(topic[1:]).expanduser()
+            if not outline_path.exists():
+                print(f"大纲文件不存在：{outline_path}")
+                return 1
+            outline_text = outline_path.read_text(encoding="utf-8")
+            topic = ""
+        materials = args.materials
+        if outline_text.startswith("@"):
+            p = Path(outline_text[1:]).expanduser()
+            if p.exists():
+                outline_text = p.read_text(encoding="utf-8")
+        if materials.startswith("@"):
+            p = Path(materials[1:]).expanduser()
+            if p.exists():
+                materials = p.read_text(encoding="utf-8")
+        print(
+            generate_ppt(
+                topic,
+                outline_text=outline_text,
+                materials=materials,
+                upload=args.upload,
+                name=args.name,
+            )
+        )
+        return 0
+    if args.cmd == "drive-tasks":
+        from ..office.task_drive import drive_from_minutes
+        from pathlib import Path
+
+        text = " ".join(args.minutes)
+        if text.startswith("@"):
+            path = Path(text[1:]).expanduser()
+            if not path.exists():
+                print(f"纪要文件不存在：{path}")
+                return 1
+            text = path.read_text(encoding="utf-8")
+        print(
+            drive_from_minutes(
+                text,
+                execute=args.execute,
+                source=args.source,
+                notify=not args.no_notify,
+            )
+        )
+        return 0
+    if args.cmd == "org":
+        from ..office.org import org_cli
+
+        return org_cli(list(args.org_args or []))
+    if args.cmd == "artifact":
+        from ..office.artifact_gen import artifact_cli
+
+        return artifact_cli(list(args.artifact_args or []))
     if args.cmd == "agent":
         from ..runtime.agent.settings import (
             agent_config_path,

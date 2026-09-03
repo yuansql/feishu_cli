@@ -271,6 +271,22 @@ def reply_user(msg: InboundMessage) -> None:
         acked = send_checked(msg.chat_id, ack_line(intent.action), as_identity="bot")
         _log("ack-text: " + acked)
     asked = strip_wake_prefix(msg.text)
+    if msg.msg_type in ("image", "file", "media"):
+        from ..office.media_understand import understand_media_message
+
+        try:
+            media_note = understand_media_message(msg.msg_type, msg.content, msg.message_id)
+        except Exception as exc:  # noqa: BLE001
+            _log("media-fail: " + str(exc)[:160])
+            media_note = ""
+        if media_note and not asked:
+            result = send_checked(
+                msg.chat_id, media_note + "\n\n要我基于这个做什么？", as_identity="bot"
+            )
+            _log("reply-media: " + result)
+            return
+        if media_note:
+            asked = asked + "\n" + media_note
     if channel == "p2p":
         try:
             if send_style_card(intent, msg.chat_id):
@@ -278,6 +294,12 @@ def reply_user(msg: InboundMessage) -> None:
                 return
         except Exception as exc:
             _log("card-fail: " + str(exc)[:160])
+    from ..office.artifact_gen import answer_to_doc, looks_like_doc_request
+
+    if looks_like_doc_request(asked):
+        result = send_checked(msg.chat_id, answer_to_doc(msg.chat_id), as_identity="bot")
+        _log("reply-doc: " + result)
+        return
     reply = dispatch(
         intent,
         user_text=asked,
@@ -296,6 +318,7 @@ def reply_user(msg: InboundMessage) -> None:
     if looks_like_bad_reply(reply):
         reply = "刚才写回复抽风了，你再说一次我重试。"
     result = send_checked(msg.chat_id, reply, as_identity="bot")
+    sent_body = reply
     if send_ok(result) and looks_like_bad_reply(reply):
         _log("sent-bad-body, correcting")
         fixed = dispatch(
@@ -307,6 +330,14 @@ def reply_user(msg: InboundMessage) -> None:
         )
         if not looks_like_bad_reply(fixed):
             result = send_checked(msg.chat_id, fixed, as_identity="bot")
+            sent_body = fixed
+    if send_ok(result) and not looks_like_bad_reply(sent_body):
+        from ..office.artifact_gen import save_last_answer
+
+        try:
+            save_last_answer(msg.chat_id, asked, sent_body)
+        except Exception as exc:  # noqa: BLE001
+            _log("save-answer-fail: " + str(exc)[:160])
     _log("reply: " + result)
 
 
