@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 import json
 from typing import Any
 
-from ..routing.intents import looks_like_wake
+from ..routing.intents import _URL_RE, looks_like_wake
 
 
 @dataclass(frozen=True)
@@ -36,6 +36,42 @@ class InboundMessage:
     woke: bool = False
     msg_type: str = ""
     content: dict[str, Any] = field(default_factory=dict)
+
+
+_SHARE_MSG_TYPES = frozenset({"share_card", "share_chat", "share_user", "share_doc", "share_media"})
+
+_DOC_URL_KEYS = ("url", "doc_url", "link", "doc_link")
+
+
+def _share_doc_url(content: dict[str, Any]) -> str:
+    """Pick the first feishu doc URL out of a share-card content payload."""
+    if not content:
+        return ""
+    for key in _DOC_URL_KEYS:
+        v = content.get(key)
+        if isinstance(v, str) and _URL_RE.match(v):
+            return v
+    share_block = (
+        content.get("share_card")
+        or content.get("share_doc")
+        or content.get("share")
+    )
+    if isinstance(share_block, dict):
+        for key in _DOC_URL_KEYS:
+            v = share_block.get(key)
+            if isinstance(v, str) and _URL_RE.match(v):
+                return v
+    return ""
+
+
+def _lift_share_doc_url(text: str, msg_type: str, content: dict[str, Any]) -> str:
+    """Share-card payloads carry the doc URL inside `content`, not in `text`.
+    Surface it so parse_intent can route to `read` instead of falling to `help`."""
+    if msg_type not in _SHARE_MSG_TYPES:
+        return text
+    if _URL_RE.match(text or ""):
+        return text
+    return _share_doc_url(content) or text
 
 
 def _mention_open_id(mention: dict[str, Any]) -> str:
@@ -145,6 +181,7 @@ def extract_inbound_message(payload: Any) -> InboundMessage | None:
                 content_dict = parsed
         except json.JSONDecodeError:
             pass
+    text = _lift_share_doc_url(text, msg_type, content_dict)
     mentions = data.get("mentions") or []
     mention_pairs: list[tuple[str, str]] = []
     mention_ids_list: list[str] = []
