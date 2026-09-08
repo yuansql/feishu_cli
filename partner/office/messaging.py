@@ -544,7 +544,7 @@ def disable_card_buttons(
     if not target_map:
         return True, "disable-card: no valid keys"
 
-    _card = card
+    _card = card if card else None
     if not _card:
         _card = load_card_cache(message_id)
     if not _card:
@@ -576,14 +576,23 @@ def disable_card_buttons(
     def _walk(node: Any) -> None:
         if isinstance(node, dict):
             value = node.get("value")
+            k = ""
             if isinstance(value, dict):
                 k = str(value.get("key") or "")
-                if k in target_map and k not in seen:
-                    node["text"] = {"tag": "plain_text", "content": target_map[k]}
-                    node["type"] = "default"
-                    node["disabled"] = True
-                    seen.add(k)
-                    return
+            elif isinstance(value, str) and value.strip():
+                # Feishu sometimes serialises button value to a JSON string.
+                try:
+                    loaded = json.loads(value)
+                except json.JSONDecodeError:
+                    loaded = {}
+                if isinstance(loaded, dict):
+                    k = str(loaded.get("key") or "")
+            if k and k in target_map and k not in seen:
+                node["text"] = {"tag": "plain_text", "content": target_map[k]}
+                node["type"] = "default"
+                node["disabled"] = True
+                seen.add(k)
+                return
             for v in node.values():
                 _walk(v)
         elif isinstance(node, list):

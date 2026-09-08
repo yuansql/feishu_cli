@@ -108,6 +108,33 @@ class DisableCardButtonTests(unittest.TestCase):
             ok, msg = messaging.disable_card_button("om_remote", "om:test", "已完成")
         self.assertTrue(ok)
 
+    def test_disable_string_value_button(self) -> None:
+        """2026-09-08 回归：飞书有时将 value 序列化为 JSON 字符串而非 dict。"""
+        card = {
+            "config": {"wide_screen_mode": True},
+            "elements": [
+                {
+                    "tag": "action",
+                    "actions": [
+                        {
+                            "tag": "button",
+                            "text": {"tag": "plain_text", "content": "完成"},
+                            "type": "primary",
+                            "value": '{"act":"fu_done","key":"fu:om_123"}',
+                        }
+                    ],
+                }
+            ],
+        }
+        messaging.cache_card("brief_om", card)
+        with mock.patch("partner.office.messaging.run_lark", return_value={"ok": True}):
+            ok, msg = messaging.disable_card_button("brief_om", "fu:om_123", "已完成")
+        self.assertTrue(ok, msg)
+        updated = json.loads((messaging._CARD_CACHE_DIR / "brief_om.json").read_text())
+        actions = updated["elements"][0]["actions"]
+        self.assertTrue(actions[0]["disabled"])
+        self.assertEqual(actions[0]["text"]["content"], "已完成")
+
     def test_sequential_clicks_accumulate_disabled(self) -> None:
         """2026-09-03 回归：连点多个「完成」，每次 patch 都必须基于上一次的合并结果，
         否则后写的全量卡片会把先点的按钮还原成可点。"""

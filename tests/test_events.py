@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import unittest
 
-from partner.core.events import extract_inbound_message, should_reply
+from partner.core.events import extract_card_action, extract_inbound_message, should_reply
 from partner.routing.intents import parse_intent
 
 
@@ -207,6 +208,94 @@ class ShareCardLiftTests(unittest.TestCase):
         )
         assert msg is not None
         self.assertEqual(msg.text, "今天")
+
+
+class ExtractCardActionTests(unittest.TestCase):
+    """2026-09-08 regression: card.action.trigger with event.action nesting."""
+
+    def test_flat_data_action(self) -> None:
+        """Legacy: action_tag / action_value directly under data."""
+        payload = {
+            "data": {
+                "chat_id": "oc_123",
+                "operator_id": "ou_456",
+                "message_id": "om_789",
+                "action_tag": "click",
+                "action_value": {"act": "done", "key": "om:test"},
+            }
+        }
+        act = extract_card_action(payload)
+        self.assertIsNotNone(act)
+        assert act is not None
+        self.assertEqual(act.act, "done")
+        self.assertEqual(act.key, "om:test")
+        self.assertEqual(act.message_id, "om_789")
+        self.assertEqual(act.open_message_id, "om_789")
+
+    def test_event_action_nesting(self) -> None:
+        """action_tag / action_value inside event.action; context inside event.context."""
+        payload = {
+            "event": {
+                "action": {
+                    "action_tag": "click",
+                    "action_value": {"act": "fu_done", "key": "fu:abc"},
+                },
+                "context": {
+                    "open_message_id": "om_card",
+                    "open_chat_id": "oc_chat",
+                },
+                "operator": {"id": {"open_id": "ou_user"}},
+            }
+        }
+        act = extract_card_action(payload)
+        self.assertIsNotNone(act)
+        assert act is not None
+        self.assertEqual(act.act, "fu_done")
+        self.assertEqual(act.key, "fu:abc")
+        self.assertEqual(act.message_id, "om_card")
+        self.assertEqual(act.open_message_id, "om_card")
+        self.assertEqual(act.chat_id, "oc_chat")
+        self.assertEqual(act.operator_id, "ou_user")
+
+    def test_event_action_string_value(self) -> None:
+        """action_value may be a JSON string rather than a dict."""
+        payload = {
+            "event": {
+                "action": {
+                    "action_tag": "click",
+                    "action_value": json.dumps({"act": "done", "key": "om:x"}),
+                },
+                "context": {"open_message_id": "om_y"},
+            }
+        }
+        act = extract_card_action(payload)
+        self.assertIsNotNone(act)
+        assert act is not None
+        self.assertEqual(act.act, "done")
+        self.assertEqual(act.key, "om:x")
+        self.assertEqual(act.message_id, "om_y")
+
+    def test_no_action_returns_none(self) -> None:
+        self.assertIsNone(extract_card_action({"data": {"chat_id": "oc_1"}}))
+        self.assertIsNone(extract_card_action({"event": {"sender": "bot"}}))
+
+    def test_string_card_content(self) -> None:
+        payload = {
+            "event": {
+                "action": {
+                    "action_tag": "click",
+                    "action_value": {"act": "done", "key": "k"},
+                },
+                "context": {
+                    "open_message_id": "om_m",
+                    "card_content": json.dumps({"tag": "div", "text": "hi"}),
+                },
+            }
+        }
+        act = extract_card_action(payload)
+        self.assertIsNotNone(act)
+        assert act is not None
+        self.assertEqual(act.card_content, {"tag": "div", "text": "hi"})
 
 
 if __name__ == "__main__":

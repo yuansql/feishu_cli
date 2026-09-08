@@ -99,14 +99,32 @@ def _as_dict(payload: Any) -> dict[str, Any] | None:
 def extract_card_action(payload: Any) -> CardAction | None:
     if not isinstance(payload, dict):
         return None
-    # Feishu card.action.trigger may nest fields under "event" or "data".
+    # Feishu card.action.trigger nests fields under event.action and event.context.
     event = payload.get("event") if isinstance(payload.get("event"), dict) else None
     data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
     if not isinstance(data, dict):
         return None
+    # Flatten event.action values so merged.action_tag / merged.action_value exist.
+    action_block = event.get("action") if isinstance(event, dict) else None
+    context_block = event.get("context") if isinstance(event, dict) else None
     merged = {**data, **(event or {})}
+    if isinstance(action_block, dict):
+        merged = {**merged, **action_block}
+    if isinstance(context_block, dict):
+        merged = {**merged, **context_block}
     if merged.get("action_tag") is None and merged.get("action_value") is None:
         return None
+    # operator may be nested: event.operator.id.open_id
+    if not merged.get("operator_id") and isinstance(event, dict):
+        op = event.get("operator")
+        if isinstance(op, dict):
+            op_id = op.get("id")
+            if isinstance(op_id, dict):
+                oid = op_id.get("open_id") or op_id.get("user_id") or ""
+                if oid:
+                    merged = {**merged, "operator_id": oid}
+            elif isinstance(op_id, str):
+                merged = {**merged, "operator_id": op_id}
     raw = merged.get("action_value")
     value: dict[str, Any] = {}
     if isinstance(raw, dict):
@@ -119,10 +137,7 @@ def extract_card_action(payload: Any) -> CardAction | None:
         if isinstance(loaded, dict):
             value = loaded
     raw_token = str(value.get("token") or merged.get("token") or "")
-    # The card.action.trigger event's top-level `message_id` IS the id of the
-    # card message that owns the clicked button. That's what we need to PATCH
-    # back when disabling the button — there's no separate `open_message_id`
-    # in the event payload.
+    # open_message_id comes from event.context in schema 2.0, fallback to merged.
     card_message_id = str(
         merged.get("open_message_id")
         or merged.get("message_id")
