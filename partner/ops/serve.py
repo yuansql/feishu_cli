@@ -303,7 +303,9 @@ def _handle_line(line: str, seen: set[str]) -> None:
             # 先 PATCH 卡片（用户立刻看到按钮变灰），再发文字确认。
             # 这样能消除 ~2s 的「点了没反应」感。
             if act.act == "fu_done" and act.open_message_id:
-                _disable_card_button(act.open_message_id, act.key, "已完成", card=act.card_content)
+                # 不传 act.card_content：飞书 message get API 返回的是降级卡片
+                # （按钮丢失），缓存才是完整卡片（2026-09-09 回归）。
+                _disable_card_button(act.open_message_id, act.key, "已完成")
             reply = apply_action(act.act, act.key)
             result = send_checked(act.chat_id or P2P_CHAT_ID, reply, as_identity="bot")
             _log("followup-card: " + result + " " + reply)
@@ -319,7 +321,7 @@ def _handle_line(line: str, seen: set[str]) -> None:
             return
         # 先 PATCH 卡片（用户立刻看到按钮变灰），再发文字确认。
         if act.open_message_id:
-            _disable_card_button(act.open_message_id, act.key, "已处理", card=act.card_content)
+            _disable_card_button(act.open_message_id, act.key, "已处理")
         reply = confirm_card(act.key)
         result = send_checked(act.chat_id or P2P_CHAT_ID, reply, as_identity="bot")
         _log("card: " + result + " " + reply)

@@ -601,6 +601,15 @@ def disable_card_buttons(
 
     _walk(_card)
     if not seen:
+        # 调用方传入的 card 可能是飞书 message get API 的降级结构
+        # （{"title":..., "elements":[[{"tag":"text",...}]]}，按钮全部丢失，
+        # 2026-09-09 实锤：事件自带 card_content 就是这种形态，导致按钮无法置灰）。
+        # 找不到 key 时回退到本地缓存的完整卡片重试一次。
+        cached = load_card_cache(message_id)
+        if cached is not None and cached is not _card:
+            _card = cached
+            _walk(_card)
+    if not seen:
         return False, f"disable-card: no keys found {list(target_map)} in {message_id}"
 
     body = json.dumps(

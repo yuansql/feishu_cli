@@ -135,6 +135,38 @@ class DisableCardButtonTests(unittest.TestCase):
         self.assertTrue(actions[0]["disabled"])
         self.assertEqual(actions[0]["text"]["content"], "已完成")
 
+    def test_degraded_event_card_falls_back_to_cache(self) -> None:
+        """2026-09-09 回归：事件自带 card_content 是飞书 message get API 的降级结构
+        （只有 title+text，按钮全部丢失）。若调用方传入这种 card，必须回退到缓存
+        里的完整卡片，否则永远 'no keys found'、按钮不变灰。"""
+        full_card = {
+            "config": {"wide_screen_mode": True},
+            "header": {"title": {"tag": "plain_text", "content": "📝 有人派活"}},
+            "elements": [
+                {"tag": "div", "text": {"tag": "lark_md", "content": "做 WIFI 耦合"}},
+                {
+                    "tag": "action",
+                    "actions": [
+                        {"tag": "button", "text": {"tag": "plain_text", "content": "完成"}, "type": "primary", "value": {"act": "fu_done", "key": "fu:om_x1"}}
+                    ],
+                },
+            ],
+        }
+        messaging.cache_card("assign_om", full_card)
+        degraded = {
+            "title": "📝 有人派活",
+            "elements": [[{"tag": "text", "text": "做 WIFI 耦合"}]],
+        }
+        with mock.patch("partner.office.messaging.run_lark", return_value={"ok": True}):
+            ok, msg = messaging.disable_card_button(
+                "assign_om", "fu:om_x1", "已完成", card=degraded
+            )
+        self.assertTrue(ok, msg)
+        updated = json.loads((messaging._CARD_CACHE_DIR / "assign_om.json").read_text())
+        actions = updated["elements"][1]["actions"]
+        self.assertTrue(actions[0]["disabled"])
+        self.assertEqual(actions[0]["text"]["content"], "已完成")
+
     def test_sequential_clicks_accumulate_disabled(self) -> None:
         """2026-09-03 回归：连点多个「完成」，每次 patch 都必须基于上一次的合并结果，
         否则后写的全量卡片会把先点的按钮还原成可点。"""
