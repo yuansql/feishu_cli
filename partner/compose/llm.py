@@ -54,6 +54,14 @@ _PROVIDER_ERROR_MARKERS = (
     "openaiexception",
     "database error, please contact the administrator",
     "(no retry)",
+    "rate limit",
+    "rate_limit",
+    "429",
+    "too many requests",
+    "temporarily",
+    "upstream",
+    "model is temporarily",
+    "please retry shortly",
 )
 
 _COMPOSE_ACTIONS = frozenset(
@@ -422,6 +430,8 @@ def accept_polished_brief(original: str, polished: str) -> bool:
 
 
 def _invoke_hermes(prompt: str, *, timeout: int, mode: str = "rewrite") -> str:
+    import time as _time
+
     binary = find_hermes()
     if binary is None:
         return ""
@@ -429,7 +439,7 @@ def _invoke_hermes(prompt: str, *, timeout: int, mode: str = "rewrite") -> str:
     if "--yolo" in argv:
         return ""
     last = ""
-    for attempt in range(2):
+    for attempt in range(3):
         try:
             proc = subprocess.run(
                 argv,
@@ -443,10 +453,16 @@ def _invoke_hermes(prompt: str, *, timeout: int, mode: str = "rewrite") -> str:
         except OSError:
             return ""
         text = _extract_reply(proc.stdout or "")
-        if _looks_like_transport_error(text) or _looks_like_transport_error(
-            proc.stderr or ""
-        ):
+        stderr = proc.stderr or ""
+        if _looks_like_transport_error(text) or _looks_like_transport_error(stderr):
             last = ""
+            if attempt < 2:
+                _time.sleep(2 ** attempt)
+            continue
+        if _looks_like_provider_error(text) or _looks_like_provider_error(stderr):
+            last = ""
+            if attempt < 2:
+                _time.sleep(2 ** attempt)
             continue
         return text
     return last

@@ -377,6 +377,9 @@ def dispatch(
     from .runtime.workflow import run_workflow
 
     route = route_request(asked, intent)
+    if route.mode == "task" and chat_id and not force_facts:
+        goal = route.query or asked
+        return start_task(goal, chat_id, background=True)
     if route.mode == "workflow" and route.workflow_id and not force_facts:
         return run_workflow(route.workflow_id, goal=asked, chat_id=chat_id)
     if route.mode == "knowledge" and route.query and not force_facts:

@@ -73,6 +73,53 @@ def minutes_text() -> str:
     payload = run_lark(['minutes', '+search', '--participant-ids', 'me', '--start', start, '--page-size', '8'], as_identity='user')
     return format_minutes(payload)
 
+
+def minutes_detail_text(minute_token: str) -> str:
+    """Read minutes summary + chapters + todos for a single minute."""
+    if not minute_token:
+        return ""
+    payload = run_lark(
+        ['minutes', '+detail', '--minute-tokens', minute_token,
+         '--summary', '--chapter', '--todo', '--format', 'json'],
+        as_identity='user',
+        timeout=60,
+    )
+    if payload.get('ok') is False:
+        return ""
+    data = payload.get('data') if isinstance(payload.get('data'), dict) else {}
+    items = data.get('items') or []
+    if not items or not isinstance(items, list):
+        return ""
+    item = items[0]
+    if not isinstance(item, dict):
+        return ""
+    out: list[str] = []
+    # Summary
+    summary = item.get('summary') or {}
+    if isinstance(summary, dict):
+        text = summary.get('text') or summary.get('content') or ''
+        if text:
+            out.append(f"【总结】{str(text)[:400]}")
+    # Chapters
+    chapters = item.get('chapters') or []
+    if chapters and isinstance(chapters, list):
+        out.append("【章节】")
+        for ch in chapters[:8]:
+            if isinstance(ch, dict):
+                title = ch.get('title') or ch.get('name') or ''
+                if title:
+                    out.append(f"- {title}")
+    # Todos
+    todos = item.get('todos') or []
+    if todos and isinstance(todos, list):
+        out.append("【待办】")
+        for td in todos[:8]:
+            if isinstance(td, dict):
+                content = td.get('content') or td.get('text') or td.get('title') or ''
+                if content:
+                    out.append(f"- {content}")
+    return "\n".join(out)
+
 def approval_text() -> str:
     payload = run_lark(['approval', 'tasks', 'query', '--topic', '1', '--page-size', '15'], as_identity='user')
     return format_approvals(payload)

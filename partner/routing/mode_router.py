@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import re
 from typing import Literal
 
-from .intents import Intent, looks_like_bare_search, looks_like_plan
+from .intents import Intent, looks_like_bare_search, looks_like_plan, looks_like_week_activity
 from ..runtime.workflow import match_workflow
 
 AgentMode = Literal["task", "workflow", "knowledge", "model"]
@@ -58,6 +58,12 @@ def route_request(text: str, intent: Intent) -> RouteDecision:
     if looks_like_plan(asked) or intent.action == "plan":
         goal = (intent.query or asked).strip()
         return RouteDecision(mode="task", query=goal)
+    # Complex weekly retrospectives benefit from multi-step observation (like Doubao)
+    if looks_like_week_activity(asked) or (
+        intent.action == "weekly"
+        and re.search(r"(?:干|做|忙|完成).{0,2}(?:什么|啥|哪些)", asked)
+    ):
+        return RouteDecision(mode="task", query=asked)
     wf_id = match_workflow(asked)
     if wf_id:
         return RouteDecision(mode="workflow", workflow_id=wf_id, query=asked)

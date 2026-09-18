@@ -69,23 +69,133 @@ def weekly_text(focus: str='') -> str:
         return _with_inbox(format_weekly_retrospective(start, end, agenda, tasks, resolved, focus='last'))
 
     start, end = _week_bounds()
+    # --- cross-source aggregation (like Doubao) ---
+    from .recap import collect_week_evidence, curated_work_buckets
+    from ..compose.llm import draft_weekly_from_chats
+
+    bundle = collect_week_evidence(start, end)
     agenda = _agenda_range(start, end)
     tasks = run_lark(['task', '+get-my-tasks', '--complete=false', '--page-limit', '20'], as_identity='user')
-    docs = run_lark(['docs', '+search', '--query', WEEKLY_QUERY, '--page-size', '5'], as_identity='user')
-    title, url = pick_personal_weekly(docs)
-    if not url:
-        docs = run_lark(['docs', '+search', '--query', '周报', '--page-size', '5'], as_identity='user')
-        title, url = pick_personal_weekly(docs)
-    if url:
-        fetched = run_lark(['docs', '+fetch', '--doc', url, '--doc-format', 'markdown', '--detail', 'simple'], as_identity='user')
-        shaped = format_weekly_from_doc(document_markdown(fetched), start, end, tasks, source_title=title, source_url=url, focus=focus)
-        if shaped:
-            return _with_inbox(shaped)
-    if focus == 'next':
-        nstart, nend = _next_week_bounds()
-        next_agenda = _agenda_range(nstart, nend)
-        return _with_inbox(format_agenda(next_agenda, heading='下周日程', empty='下周日历还没记下会，周报里也没有下周计划。'))
-    return _with_inbox(format_weekly_human(start, end, agenda, tasks, docs))
+    minutes = run_lark(['minutes', '+search', '--participant-ids', 'me', '--start', start.date().isoformat(), '--page-size', '8'], as_identity='user')
+
+    # Build narrative summary from multiple sources
+    tasks_blob = format_tasks(tasks)
+    if tasks.get('ok') is False:
+        tasks_blob = format_lark_error(tasks)
+
+    # Read minutes details (summary/chapters) for richer context
+    minutes_context: list[str] = []
+    if minutes.get('ok'):
+        from ..compose.formatters import _items
+        mins = [m for m in _items(minutes, 'minutes', 'items', 'list') if isinstance(m, dict)]
+        from .docs_io import minutes_detail_text
+        for m in mins[:3]:
+            token = m.get('minute_token') or m.get('token') or ''
+            if token:
+                detail = minutes_detail_text(token)
+                if detail:
+                    title = m.get('title') or m.get('topic') or '会议纪要'
+                    minutes_context.append(f"【{title}】\n{detail[:600]}")
+
+    # Try LLM synthesis first
+    facts = (
+        f"周期：{start.date().isoformat()} ~ {end.date().isoformat()}\n"
+        f"本周检索消息 {bundle.message_count} 条，工作相关证据 {bundle.evidence_count} 条。\n\n"
+        f"【本周聊天证据】\n{(bundle.context or '（本周几乎没有可作周报的工作聊天）')[:5000]}\n\n"
+        f"【当前未完成待办（含上周结转）】\n{tasks_blob[:2000]}"
+    )
+    if minutes_context:
+        facts += "\n\n【本周会议纪要摘要】\n" + "\n\n".join(minutes_context)[:2000]
+    polished = draft_weekly_from_chats(facts, timeout=60)
+
+    if polished and "【本周完成】" in polished:
+        lines = [
+            f"本周工作盘点（{_slash_date(start)} 周一 – {_slash_date(end)} 周五，截至现在）",
+            "",
+            polished.strip(),
+        ]
+        # Append related minutes links if available
+        if minutes.get('ok'):
+            from ..compose.formatters import _items
+            mins = [m for m in _items(minutes, 'minutes', 'items', 'list') if isinstance(m, dict)]
+            if mins:
+                lines.append("")
+                lines.append("相关妙记：")
+                for m in mins[:5]:
+                    title = m.get('title') or m.get('topic') or '(无主题)'
+                    url = m.get('url') or m.get('share_url') or ''
+                    lines.append(f"- {title}  {url}".rstrip())
+        return _with_inbox("\n".join(lines))
+
+    # Fallback: structured like Doubao when LLM unavailable
+    done, progress, pending = curated_work_buckets(bundle.context or "")
+
+    lines = [
+        f"本周工作盘点（{_slash_date(start)} 周一 – {_slash_date(end)} 周五，截至现在）",
+        "",
+    ]
+
+    # Meetings from calendar
+    if agenda.get('ok') is not False:
+        from ..compose.formatters import _items
+        events = [e for e in _items(agenda, 'events', 'items', 'calendar_events') if isinstance(e, dict)]
+        if events:
+            lines.append(f"一、参加/待开的会议（日历日程 {len(events)} 场）")
+            for item in events[:10]:
+                day = _event_day(item)
+                title = _event_title(item)
+                when = _when(item.get('start_time') or item.get('start'))
+                extra = f"（{when}）" if when else ""
+                lines.append(f"- {day} {title}{extra}".strip())
+            lines.append("")
+
+    # Core work from chat evidence
+    lines.append("二、核心工作")
+    if done:
+        for i, item in enumerate(done[:6], 1):
+            lines.append(f"{i}. {item}")
+    elif progress:
+        for i, item in enumerate(progress[:6], 1):
+            lines.append(f"{i}. {item}")
+    else:
+        lines.append("- 聊天证据不足，暂无法归纳本周完成项。")
+    lines.append("")
+
+    # Pending / open tasks
+    lines.append("三、待推进")
+    if progress:
+        for item in progress[:6]:
+            lines.append(f"- {item}")
+    if tasks_blob and "没有未完成" not in tasks_blob:
+        for line in tasks_blob.splitlines()[:6]:
+            s = line.strip(" -•\t")
+            if s and "未完成" not in s:
+                lines.append(f"- {s}")
+    if len(lines) == 0 or lines[-1] == "三、待推进":
+        lines.append("- 暂无明确待推进事项。")
+    lines.append("")
+
+    # Next week plan
+    lines.append("四、下周计划")
+    plans = [f"跟进：{p}" for p in pending[:3]] if pending else []
+    if not plans:
+        plans = ["按未完成待办与进行中事项继续推进"]
+    for p in plans:
+        lines.append(f"- {p}")
+    lines.append("")
+
+    # Related minutes
+    if minutes.get('ok'):
+        from ..compose.formatters import _items
+        mins = [m for m in _items(minutes, 'minutes', 'items', 'list') if isinstance(m, dict)]
+        if mins:
+            lines.append("相关妙记：")
+            for m in mins[:5]:
+                title = m.get('title') or m.get('topic') or '(无主题)'
+                url = m.get('url') or m.get('share_url') or ''
+                lines.append(f"- {title}  {url}".rstrip())
+
+    return _with_inbox("\n".join(lines))
 
 def _created_doc_link(payload: dict[str, Any]) -> str:
     data = payload.get('data') if isinstance(payload.get('data'), dict) else payload
